@@ -45,8 +45,8 @@ with st.sidebar:
     st.caption("PRODUCT INTELLIGENCE CONSOLE")
     st.divider()
     st.markdown("#### Data source")
-    uploaded = st.file_uploader("Upload review CSV", type="csv", label_visibility="collapsed")
-    st.caption("Recognises `review`, `review_text`, `rating`, `date`, and `app_name` automatically.")
+    uploaded = st.file_uploader("Upload review file", type=["csv", "xlsx", "xls"], label_visibility="collapsed")
+    st.caption("Upload CSV or Excel. Recognises `review`, `review_text`, `rating`, `date`, and `app_name` automatically.")
     st.divider()
     st.markdown("#### Analysis guardrails")
     st.caption("✓ PII scrubbed before display\n\n✓ Theme evidence retained\n\n✓ Sentiment drift monitored")
@@ -62,21 +62,28 @@ if not uploaded:
 try:
     source = None
     last_error = None
-    for encoding in ("utf-8", "cp1252", "latin1"):
-        try:
-            uploaded.seek(0)
-            source = pd.read_csv(uploaded, encoding=encoding)
-            break
-        except UnicodeDecodeError as error:
-            last_error = error
-        except pd.errors.ParserError as error:
-            last_error = error
+    uploaded.seek(0)
+    file_signature = uploaded.read(4)
+    uploaded.seek(0)
+    is_excel = uploaded.name.lower().endswith((".xlsx", ".xls")) or file_signature == b"PK\x03\x04"
+    if is_excel:
+        source = pd.read_excel(uploaded)
+    else:
+        for encoding in ("utf-8", "cp1252", "latin1"):
             try:
                 uploaded.seek(0)
-                source = pd.read_csv(uploaded, encoding=encoding, engine="python", on_bad_lines="skip")
+                source = pd.read_csv(uploaded, encoding=encoding)
                 break
-            except (UnicodeDecodeError, pd.errors.ParserError) as fallback_error:
-                last_error = fallback_error
+            except UnicodeDecodeError as error:
+                last_error = error
+            except pd.errors.ParserError as error:
+                last_error = error
+                try:
+                    uploaded.seek(0)
+                    source = pd.read_csv(uploaded, encoding=encoding, engine="python", on_bad_lines="skip")
+                    break
+                except (UnicodeDecodeError, pd.errors.ParserError) as fallback_error:
+                    last_error = fallback_error
     if source is None:
         raise last_error
 except Exception as error:
