@@ -51,8 +51,16 @@ with st.sidebar:
     st.markdown("#### Analysis guardrails")
     st.caption("✓ PII scrubbed before display\n\n✓ Theme evidence retained\n\n✓ Sentiment drift monitored")
 
+if not uploaded:
+    st.info("Upload a CSV file from the sidebar to start analysing reviews.")
+    st.markdown(
+        '<div class="developer-footer">Developed by Naman · Avni · Abhay · Priyanshu · Alish · Aditya</div>',
+        unsafe_allow_html=True,
+    )
+    st.stop()
+
 try:
-    source = pd.read_csv(uploaded) if uploaded else pd.read_csv("reviews_clean.csv")
+    source = pd.read_csv(uploaded)
 except Exception as error:
     st.error(f"Could not read the CSV: {error}")
     st.stop()
@@ -71,7 +79,7 @@ label_col = find_column(["sentiment_label", "label", "sentiment"])
 records = [{"review_id": row.get(id_col, index + 1), "review_text": row.get(text_col), "rating": row.get(rating_col) if rating_col else None, "date": row.get(date_col) if date_col else None, "product": row.get(product_col) if product_col else None, "sentiment_label": row.get(label_col) if label_col else None} for index, row in source.iterrows()]
 result = analyze_reviews(records)
 summary, quality, validation, drift = result["sentiment_counts"], result["quality"], result["validation"], result["drift"]
-source_name = "your uploaded dataset" if uploaded else "bundled 10K review dataset"
+source_name = "your uploaded dataset"
 
 st.markdown(f"""
 <div class="hero">
