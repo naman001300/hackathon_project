@@ -34,6 +34,7 @@ h2 { font-size:1.18rem !important; margin-top:2rem !important; }
 .evidence { border-left:3px solid var(--cyan); background:rgba(45,71,118,.18); padding:.8rem 1rem; border-radius:0 10px 10px 0; margin:.65rem 0; color:#d8e3f5; }
 .evidence-meta { color:#8ea3c3; font:500 .71rem 'DM Mono',monospace; margin-bottom:.35rem; }
 .section-note { color:#95a9c5; margin-top:-.35rem; font-size:.86rem; }
+.developer-footer { margin-top:2.5rem; padding:1rem 0 .25rem; border-top:1px solid var(--line); color:#8ea3c3; text-align:center; font:500 .72rem 'DM Mono',monospace; letter-spacing:.04em; }
 .stButton > button { border-radius:10px; border:1px solid rgba(66,217,255,.4); background:rgba(66,217,255,.1); color:#cff7ff; }
 div[data-baseweb="select"] > div, [data-testid="stFileUploader"] section { background:#101c34 !important; border-color:var(--line) !important; }
 </style>
@@ -134,3 +135,8 @@ if not audit.empty:
     audit["themes"] = audit["themes"].apply(", ".join)
     audit["sentiment_signals"] = audit["sentiment_signals"].apply(", ".join)
     st.dataframe(audit[["review_id", "date", "product", "rating", "sentiment", "sentiment_signals", "themes", "text"]], use_container_width=True, hide_index=True, height=420)
+
+st.markdown(
+    '<div class="developer-footer">Developed by Naman · Avni · Abhay · Priyanshu · Alish · Aditya</div>',
+    unsafe_allow_html=True,
+)
