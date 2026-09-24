@@ -69,6 +69,14 @@ try:
             break
         except UnicodeDecodeError as error:
             last_error = error
+        except pd.errors.ParserError as error:
+            last_error = error
+            try:
+                uploaded.seek(0)
+                source = pd.read_csv(uploaded, encoding=encoding, engine="python", on_bad_lines="skip")
+                break
+            except (UnicodeDecodeError, pd.errors.ParserError) as fallback_error:
+                last_error = fallback_error
     if source is None:
         raise last_error
 except Exception as error:
