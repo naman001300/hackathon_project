@@ -86,9 +86,11 @@ except Exception as error:
 def find_column(options):
     return next((column for column in options if column in source.columns), None)
 
-text_col = find_column(["review_text", "review", "text", "content", "comment"])
+source.columns = [str(column).replace("\ufeff", "").strip().lower().replace(" ", "_") for column in source.columns]
+
+text_col = find_column(["review_text", "review", "text", "content", "comment", "review_body", "review_content", "body", "description"])
 if not text_col:
-    st.error("No review text column found. Add `review_text`, `review`, `text`, `content`, or `comment`.")
+    st.error(f"No review text column found. Detected columns: {', '.join(source.columns[:15])}")
     st.stop()
 
 id_col, rating_col = find_column(["review_id", "_id", "id"]), find_column(["rating", "score", "stars"])
