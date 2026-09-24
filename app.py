@@ -60,7 +60,17 @@ if not uploaded:
     st.stop()
 
 try:
-    source = pd.read_csv(uploaded)
+    source = None
+    last_error = None
+    for encoding in ("utf-8", "cp1252", "latin1"):
+        try:
+            uploaded.seek(0)
+            source = pd.read_csv(uploaded, encoding=encoding)
+            break
+        except UnicodeDecodeError as error:
+            last_error = error
+    if source is None:
+        raise last_error
 except Exception as error:
     st.error(f"Could not read the CSV: {error}")
     st.stop()
