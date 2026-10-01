@@ -134,7 +134,7 @@ cols = st.columns(5)
 cols[0].metric("Reviews analysed", f"{result['total_reviews']:,}")
 cols[1].metric("Positive signals", f"{summary['positive']:,}")
 cols[2].metric("Negative signals", f"{summary['negative']:,}")
-cols[3].metric("Reviews With PII Masked", f"{quality['pii_redacted_count']:,}")
+cols[3].metric("PII Masked", f"{quality['pii_redacted_count']:,}")
 cols[4].metric("Validation accuracy", f"{validation['accuracy']:.0%}" if validation["accuracy"] is not None else "Needs labels", help="Against a sentiment_label column, or a rating-derived proxy label.")
 
 chart_theme = dict(template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", font=dict(family="Manrope", color="#c8d5ea"), margin=dict(l=15, r=15, t=20, b=15), height=330)
