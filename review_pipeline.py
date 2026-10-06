@@ -1,5 +1,6 @@
 """Privacy-first batch review analytics used by the Streamlit dashboard and API."""
 from collections import Counter, defaultdict
+from collections.abc import Callable
 from datetime import datetime
 import math
 from typing import Any
@@ -35,7 +36,10 @@ def _js_divergence(first: Counter, second: Counter) -> float:
     def kl(source): return sum(value * math.log2(value / mid[key]) for key, value in source.items() if value)
     return round((kl(p) + kl(q)) / 2, 3)
 
-def analyze_reviews(reviews: list[dict]) -> dict:
+def analyze_reviews(
+    reviews: list[dict],
+    progress_callback: Callable[[str, int, int], None] | None = None,
+) -> dict:
     """Create dashboard-ready analysis, keeping every output traceable to its source review."""
     prepared, invalid_rows, pii_redacted = [], 0, 0
     examples, by_month = defaultdict(list), defaultdict(Counter)
@@ -61,8 +65,26 @@ def analyze_reviews(reviews: list[dict]) -> dict:
         })
 
     texts = [review["text"] for review in prepared]
-    sentiments = classify_sentiments(texts)
-    sarcasms = classify_sarcasms(texts)
+    if progress_callback is not None:
+        progress_callback("sentiment", 0, len(texts))
+    sentiments = classify_sentiments(
+        texts,
+        progress_callback=(
+            lambda completed, total: progress_callback("sentiment", completed, total)
+            if progress_callback is not None
+            else None
+        ),
+    )
+    if progress_callback is not None:
+        progress_callback("sarcasm", 0, len(texts))
+    sarcasms = classify_sarcasms(
+        texts,
+        progress_callback=(
+            lambda completed, total: progress_callback("sarcasm", completed, total)
+            if progress_callback is not None
+            else None
+        ),
+    )
     analyzed = []
 
     for review, sentiment, sarcasm in zip(prepared, sentiments, sarcasms):

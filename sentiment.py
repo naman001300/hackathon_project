@@ -1,6 +1,7 @@
 """Transformer-only sentiment and sarcasm classification."""
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any
 
 SENTIMENT_MODEL_NAME = "distilbert/distilbert-base-uncased-finetuned-sst-2-english"
@@ -8,6 +9,7 @@ SARCASM_MODEL_NAME = "helinivan/english-sarcasm-detector"
 
 _SENTIMENT_PIPELINE: Any | None = None
 _SARCASM_PIPELINE: Any | None = None
+CLASSIFY_CHUNK_SIZE = 64
 
 
 def _load_pipeline(model_name: str):
@@ -33,46 +35,61 @@ def _load_pipeline(model_name: str):
     return cached
 
 
-def _classify_batch(texts: list[str], model_name: str, kind: str) -> list[dict]:
+def _classify_batch(
+    texts: list[str],
+    model_name: str,
+    kind: str,
+    progress_callback: Callable[[int, int], None] | None = None,
+) -> list[dict]:
     if not texts:
         return []
 
     classifier = _load_pipeline(model_name)
-    predictions = classifier(texts, batch_size=16, truncation=True)
     results = []
-    for prediction in predictions:
-        item = prediction[0] if isinstance(prediction, list) else prediction
-        raw_label = str(item["label"]).upper()
-        confidence = round(float(item["score"]), 4)
+    for start in range(0, len(texts), CLASSIFY_CHUNK_SIZE):
+        batch = texts[start:start + CLASSIFY_CHUNK_SIZE]
+        predictions = classifier(batch, batch_size=16, truncation=True)
+        for prediction in predictions:
+            item = prediction[0] if isinstance(prediction, list) else prediction
+            raw_label = str(item["label"]).upper()
+            confidence = round(float(item["score"]), 4)
 
-        if kind == "sentiment":
-            if raw_label not in {"POSITIVE", "NEGATIVE"}:
-                raise ValueError(f"Unexpected sentiment label from {model_name}: {raw_label}")
-            label = raw_label.lower()
-        else:
-            if raw_label not in {"LABEL_0", "LABEL_1"}:
-                raise ValueError(f"Unexpected sarcasm label from {model_name}: {raw_label}")
-            label = "sarcastic" if raw_label == "LABEL_1" else "not_sarcastic"
+            if kind == "sentiment":
+                if raw_label not in {"POSITIVE", "NEGATIVE"}:
+                    raise ValueError(f"Unexpected sentiment label from {model_name}: {raw_label}")
+                label = raw_label.lower()
+            else:
+                if raw_label not in {"LABEL_0", "LABEL_1"}:
+                    raise ValueError(f"Unexpected sarcasm label from {model_name}: {raw_label}")
+                label = "sarcastic" if raw_label == "LABEL_1" else "not_sarcastic"
 
-        results.append({
-            "label": label,
-            "score": confidence,
-            "signals": [raw_label] if kind == "sentiment" else [],
-            "model": model_name,
-            "model_status": "online",
-            "model_used": model_name,
-        })
+            results.append({
+                "label": label,
+                "score": confidence,
+                "signals": [raw_label] if kind == "sentiment" else [],
+                "model": model_name,
+                "model_status": "online",
+                "model_used": model_name,
+            })
+        if progress_callback is not None:
+            progress_callback(len(results), len(texts))
     return results
 
 
-def classify_sentiments(texts: list[str]) -> list[dict]:
+def classify_sentiments(
+    texts: list[str],
+    progress_callback: Callable[[int, int], None] | None = None,
+) -> list[dict]:
     """Classify a batch of texts as positive or negative with DistilBERT."""
-    return _classify_batch(texts, SENTIMENT_MODEL_NAME, "sentiment")
+    return _classify_batch(texts, SENTIMENT_MODEL_NAME, "sentiment", progress_callback)
 
 
-def classify_sarcasms(texts: list[str]) -> list[dict]:
+def classify_sarcasms(
+    texts: list[str],
+    progress_callback: Callable[[int, int], None] | None = None,
+) -> list[dict]:
     """Classify a batch of English texts for sarcasm with a fine-tuned BERT model."""
-    return _classify_batch(texts, SARCASM_MODEL_NAME, "sarcasm")
+    return _classify_batch(texts, SARCASM_MODEL_NAME, "sarcasm", progress_callback)
 
 
 def classify_sentiment(text: str) -> dict:

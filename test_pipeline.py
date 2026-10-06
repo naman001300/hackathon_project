@@ -76,11 +76,21 @@ def test_pipeline_redacts_and_tracks_evidence():
     assert "reliability" in result["reviews"][0]["themes"]
 
 def test_pipeline_rejects_bad_rows_and_exposes_drift():
-    result = analyze_reviews([
-        {"review_text": "great app", "rating": 5, "date": "2026-01-02"},
-        {"review_text": "broken app", "rating": 1, "date": "2026-02-02"},
-        {"review_text": "bad rating", "rating": 7},
-    ])
+    progress = []
+    result = analyze_reviews(
+        [
+            {"review_text": "great app", "rating": 5, "date": "2026-01-02"},
+            {"review_text": "broken app", "rating": 1, "date": "2026-02-02"},
+            {"review_text": "bad rating", "rating": 7},
+        ],
+        progress_callback=lambda phase, completed, total: progress.append((phase, completed, total)),
+    )
     assert result["quality"]["invalid_rows"] == 1
     assert result["drift"]["score"] is not None
     assert result["validation"]["labelled_sample_size"] == 2
+    assert progress == [
+        ("sentiment", 0, 2),
+        ("sentiment", 2, 2),
+        ("sarcasm", 0, 2),
+        ("sarcasm", 2, 2),
+    ]

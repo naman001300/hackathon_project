@@ -78,7 +78,7 @@ h2 { font-size:1.18rem !important; margin-top:2rem !important; }
 .st-key-reviewpulse_dock button { border-radius:10px !important; transition:transform .18s ease,background-color .18s ease,box-shadow .18s ease; }
 .st-key-reviewpulse_dock button:hover { transform:translateY(-2px); box-shadow:0 7px 18px rgba(101,223,189,.13); }
 .st-key-reviewpulse_dock [role="radio"] { min-width:0; padding-inline:.5rem !important; font-size:.84rem !important; white-space:nowrap; }
-.home-shell { position:relative; min-height:390px; padding:5.2rem 0 2.6rem; border-bottom:1px solid var(--line); animation:rise-in .8s cubic-bezier(.2,.75,.25,1) both; }
+.home-shell { position:relative; min-height:200px; padding:2.1rem 0 1.2rem; border-bottom:1px solid var(--line); animation:rise-in .8s cubic-bezier(.2,.75,.25,1) both; }
 .home-shell::after { content:""; position:absolute; right:2%; top:18%; width:36%; height:68%; opacity:.23; background:repeating-linear-gradient(90deg,transparent 0 30px,rgba(101,223,189,.14) 31px 32px),repeating-linear-gradient(0deg,transparent 0 30px,rgba(101,223,189,.1) 31px 32px); mask-image:linear-gradient(90deg,transparent,#000); pointer-events:none; }
 .home-kicker { position:relative; z-index:1; color:var(--cyan); font:500 .7rem 'DM Mono',monospace; }
 .home-title { position:relative; z-index:1; margin:.9rem 0 .75rem; color:#f3f8f5; font:800 3.25rem/1.04 'Manrope',sans-serif; }
@@ -86,6 +86,27 @@ h2 { font-size:1.18rem !important; margin-top:2rem !important; }
 .home-copy { position:relative; z-index:1; max-width:660px; color:#b4c1ba; font-size:1rem; line-height:1.7; }
 .home-tool-rail { position:relative; z-index:1; display:flex; flex-wrap:wrap; gap:1.6rem; margin-top:1.8rem; color:#dce8e1; font:500 .7rem 'DM Mono',monospace; }
 .home-tool-rail span { color:#f2a77a; margin-right:.45rem; }
+.home-details-label { margin-top:1.6rem; color:#8fa49a; font:500 .62rem 'DM Mono',monospace; }
+.home-detail-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:1.6rem; max-width:990px; margin-top:.65rem; }
+.home-detail { border-top:1px solid rgba(170,198,184,.2); padding-top:.7rem; animation:rise-in .55s ease both; }
+.home-detail:nth-child(2) { animation-delay:.08s; }
+.home-detail:nth-child(3) { animation-delay:.16s; }
+.home-detail strong { display:block; color:#eaf4ee; font-size:.82rem; font-weight:700; }
+.home-detail p { margin:.25rem 0 0; color:#98aaa0; font-size:.75rem; line-height:1.5; }
+.liquid-progress { display:flex; align-items:center; gap:1rem; padding:.85rem 1rem; border:1px solid rgba(101,223,189,.2); border-radius:14px; background:linear-gradient(110deg,rgba(19,39,33,.82),rgba(20,29,26,.72)); }
+.liquid-vessel { position:relative; display:grid; place-items:center; flex:none; width:48px; height:66px; overflow:hidden; border:1px solid rgba(177,241,219,.58); border-radius:9px 9px 13px 13px; background:rgba(9,20,17,.72); box-shadow:inset 0 0 12px rgba(101,223,189,.08),0 4px 14px rgba(0,0,0,.18); }
+.liquid-vessel::before { content:""; position:absolute; inset:4px; z-index:2; border:1px solid rgba(220,255,240,.08); border-radius:5px 5px 9px 9px; pointer-events:none; }
+.liquid-fill { position:absolute; inset:auto 0 0; height:var(--liquid-level); overflow:hidden; background:linear-gradient(180deg,rgba(101,223,189,.7),rgba(43,155,133,.54)); transition:height .55s cubic-bezier(.2,.7,.2,1); }
+.liquid-fill::before,.liquid-fill::after { content:""; position:absolute; left:-65%; width:230%; height:15px; border-radius:43%; background:rgba(177,255,224,.52); }
+.liquid-fill::before { top:-8px; animation:liquid-wave 3.4s linear infinite; }
+.liquid-fill::after { top:-5px; left:-110%; background:rgba(208,255,236,.24); animation:liquid-wave 5s linear infinite reverse; }
+.liquid-bubble { position:absolute; z-index:1; bottom:-7px; width:4px; height:4px; border-radius:50%; background:rgba(218,255,239,.72); animation:liquid-bubble 2.8s ease-in infinite; }
+.liquid-bubble:nth-child(2) { left:30%; animation-delay:.7s; }
+.liquid-bubble:nth-child(3) { left:68%; width:3px; height:3px; animation-delay:1.5s; }
+.liquid-percent { position:relative; z-index:3; color:#f2fff8; font:700 .65rem 'DM Mono',monospace; text-shadow:0 1px 5px rgba(0,0,0,.75); }
+.liquid-copy { min-width:0; }
+.liquid-phase { color:#e5f5ec; font-size:.88rem; font-weight:700; }
+.liquid-caption { margin-top:.2rem; color:#96aaa0; font-size:.73rem; line-height:1.45; }
 .page-kicker { color:var(--cyan); font:500 .7rem 'DM Mono',monospace; margin:2rem 0 .4rem; }
 .empty-tool { margin:2rem 0; padding:2rem 0; border-top:1px solid var(--line); border-bottom:1px solid var(--line); animation:rise-in .55s ease both; }
 .intake { position:relative; padding:1.25rem 0 1rem; border-bottom:1px solid var(--line); overflow:hidden; animation:rise-in .75s cubic-bezier(.2,.75,.25,1) both; }
@@ -129,12 +150,14 @@ h2 { font-size:1.18rem !important; margin-top:2rem !important; }
 @keyframes rise-in { from { opacity:0; transform:translateY(20px); } to { opacity:1; transform:translateY(0); } }
 @keyframes soft-starfall { to { background-position:0 460px,90px 620px,180px 760px,240px 980px,40px 520px,150px 680px,260px 840px,320px 920px,20px 380px,110px 540px,220px 780px,50px 650px,290px 880px,370px 720px,30px 480px,190px 820px,70px 580px,360px 1000px,40px 40px,-40px 40px,0 0; } }
 @keyframes waveform { 0%,100% { transform:scaleY(.62); opacity:.72; } 50% { transform:scaleY(1); opacity:1; } }
+@keyframes liquid-wave { from { transform:translateX(-12%) rotate(0); } to { transform:translateX(12%) rotate(360deg); } }
+@keyframes liquid-bubble { 0% { opacity:0; transform:translateY(0) scale(.6); } 18% { opacity:.75; } 100% { opacity:0; transform:translateY(-60px) scale(1.15); } }
 @keyframes signal-pulse { 0%,100% { opacity:1; box-shadow:0 0 0 0 rgba(101,223,189,.38); } 50% { opacity:.68; box-shadow:0 0 0 6px rgba(101,223,189,0); } }
 @keyframes live-pulse { 0%,100% { box-shadow:0 0 0 rgba(66,217,255,0); } 50% { box-shadow:0 0 18px rgba(66,217,255,.16); } }
 @keyframes scroll-reveal { from { opacity:0; transform:translateY(26px); } to { opacity:1; transform:translateY(0); } }
 @supports (animation-timeline:view()) { .stPlotlyChart, [data-testid="stExpander"], [data-testid="stDataFrame"] { animation:scroll-reveal linear both; animation-timeline:view(); animation-range:entry 0% cover 28%; } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration:.01ms !important; animation-iteration-count:1 !important; transition-duration:.01ms !important; scroll-behavior:auto !important; } }
-@media (max-width:700px) { .block-container { padding:1.5rem 1.2rem 3rem; } .intake h1 { font-size:2.4rem !important; } .home-title { font-size:2.55rem; } .home-shell { padding-top:3.5rem; } .signal-rail { gap:1rem; flex-wrap:wrap; } .home-tool-rail { gap:.9rem; } .intake::after,.home-shell::after { width:48%; } .st-key-reviewpulse_dock [role="radio"] { padding-inline:.3rem !important; font-size:.76rem !important; } }
+@media (max-width:700px) { .block-container { padding:1.5rem 1.2rem 3rem; } .intake h1 { font-size:2.4rem !important; } .home-title { font-size:2.55rem; } .home-shell { padding-top:1.3rem; } .signal-rail { gap:1rem; flex-wrap:wrap; } .home-tool-rail { gap:.9rem; } .home-detail-grid { grid-template-columns:1fr; gap:.9rem; } .intake::after,.home-shell::after { width:48%; } .st-key-reviewpulse_dock [role="radio"] { padding-inline:.3rem !important; font-size:.76rem !important; } }
 .eyebrow { color:var(--cyan); text-transform:uppercase; letter-spacing:.16em; font:500 .7rem 'DM Mono',monospace; margin-bottom:.55rem; }
 .hero h1 { position:relative; z-index:1; font-size:2.7rem !important; margin:0 !important; line-height:1.08; max-width:760px; }
 .hero p { position:relative; z-index:1; color:#b7c6df; margin:.7rem 0 0; max-width:680px; font-size:1rem; line-height:1.7; }
@@ -201,6 +224,7 @@ if active_page == "Home":
     </section>
     """, unsafe_allow_html=True)
     st.button("Analyze reviews", type="primary", icon=":material/arrow_forward:", on_click=_open_analyzer)
+    st.markdown('<div class="home-details-label">FROM CUSTOMER WORDS TO PRODUCT SIGNALS</div><div class="home-detail-grid"><div class="home-detail"><strong>Read the tone</strong><p>Transformer models classify sentiment and sarcasm.</p></div><div class="home-detail"><strong>Keep the evidence</strong><p>Theme signals link findings back to review text.</p></div><div class="home-detail"><strong>Protect the person</strong><p>Contact details are masked before AI analysis.</p></div></div>', unsafe_allow_html=True)
     st.markdown('<div class="developer-footer">REVIEWPULSE · PRIVATE BY DESIGN · EVIDENCE FIRST</div>', unsafe_allow_html=True)
     st.stop()
 
@@ -371,10 +395,35 @@ if manual_submitted or upload_submitted:
                 st.error(f"Could not read the review file: {error}")
 
     if records is not None:
+        liquid_progress = st.empty()
+        progress_note = st.empty()
+
+        def update_analysis_progress(phase, completed, total):
+            sentiment_phase = phase == "sentiment"
+            phase_name = "DistilBERT sentiment" if sentiment_phase else "BERT sarcasm"
+            fraction = completed / max(total, 1)
+            overall = fraction * 0.5 if sentiment_phase else 0.5 + fraction * 0.5
+            percent = round(overall * 100)
+            caption = "Loading model weights; first run downloads about 700 MB." if completed == 0 else f"{completed:,} of {total:,} reviews processed in this phase."
+            liquid_progress.markdown(
+                f'<div class="liquid-progress" role="progressbar" aria-valuenow="{percent}" aria-valuemin="0" aria-valuemax="100"><div class="liquid-vessel"><div class="liquid-fill" style="--liquid-level:{percent}%"><i class="liquid-bubble"></i><i class="liquid-bubble"></i><i class="liquid-bubble"></i></div><span class="liquid-percent">{percent}%</span></div><div class="liquid-copy"><div class="liquid-phase">{phase_name}</div><div class="liquid-caption">{caption}</div></div></div>',
+                unsafe_allow_html=True,
+            )
+            if completed == 0:
+                progress_note.caption(f"Loading {phase_name} model and weights…")
+            elif completed < total:
+                progress_note.caption(f"{phase_name}: {completed:,}/{total:,} reviews analyzed")
+
         try:
-            with st.spinner("Loading AI models and analyzing reviews…"):
-                st.session_state["analysis_result"] = analyze_reviews(records)
+            with st.status("Starting AI review analysis…", expanded=True) as analysis_status:
+                st.session_state["analysis_result"] = analyze_reviews(
+                    records,
+                    progress_callback=update_analysis_progress,
+                )
                 st.session_state["analysis_source"] = source_name
+                analysis_status.update(label="Review analysis complete", state="complete", expanded=False)
+            liquid_progress.empty()
+            progress_note.empty()
         except Exception as error:
             st.error("AI analysis could not run. The transformer models must download from Hugging Face; no rule-based fallback is used.")
             with st.expander("Technical details"):
