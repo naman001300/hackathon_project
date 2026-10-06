@@ -4,7 +4,5 @@ streamlit
 openpyxl
 fastapi
 uvicorn
-transformers
-torch
-truststore
+openai
 pytest

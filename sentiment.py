@@ -1,134 +1,86 @@
-"""Transformer-only sentiment and sarcasm classification."""
+"""GPT-powered review sentiment and sarcasm classification."""
 from __future__ import annotations
 
+import json
+import os
 from collections.abc import Callable
-from threading import Lock
 from typing import Any
 
-SENTIMENT_MODEL_NAME = "distilbert/distilbert-base-uncased-finetuned-sst-2-english"
-SARCASM_MODEL_NAME = "helinivan/english-sarcasm-detector"
-
-_SENTIMENT_PIPELINE: Any | None = None
-_SARCASM_PIPELINE: Any | None = None
-_PIPELINE_LOAD_LOCK = Lock()
-# Free Streamlit Cloud runs on CPU. Larger batches reduce Python/pipeline overhead
-# dramatically while 128 tokens comfortably covers normal customer reviews.
-CLASSIFY_CHUNK_SIZE = 512
-INFERENCE_BATCH_SIZE = 64
-MAX_INPUT_TOKENS = 128
+GPT_MODEL_NAME = os.getenv("OPENAI_REVIEW_MODEL", "gpt-4.1-mini")
+REQUEST_BATCH_SIZE = 200
 
 
 class ModelLoadError(RuntimeError):
-    """Raised when a required Hugging Face model cannot be made available."""
+    """Raised when the OpenAI-powered review analysis cannot be run."""
 
 
-def _load_pipeline(model_name: str):
-    """Load a classifier once per process, including during concurrent uploads."""
-    global _SENTIMENT_PIPELINE, _SARCASM_PIPELINE
-    cached = _SENTIMENT_PIPELINE if model_name == SENTIMENT_MODEL_NAME else _SARCASM_PIPELINE
-    if cached is not None:
-        return cached
-
-    # Streamlit can process uploads in separate sessions at the same time. Without
-    # this guard both sessions may try to download/load the same large weights,
-    # which can exhaust memory or leave an upload apparently stuck.
-    with _PIPELINE_LOAD_LOCK:
-        cached = _SENTIMENT_PIPELINE if model_name == SENTIMENT_MODEL_NAME else _SARCASM_PIPELINE
-        if cached is not None:
-            return cached
-
-        try:
-            import truststore
-
-            truststore.inject_into_ssl()
-            from transformers import pipeline
-
-            cached = pipeline(
-                "text-classification",
-                model=model_name,
-                tokenizer=model_name,
-                truncation=True,
-            )
-        except Exception as error:
-            raise ModelLoadError(
-                f"Could not load {model_name}. Check the internet connection, "
-                "Hugging Face access, and available disk space."
-            ) from error
-
-        if model_name == SENTIMENT_MODEL_NAME:
-            _SENTIMENT_PIPELINE = cached
-        else:
-            _SARCASM_PIPELINE = cached
-    return cached
+RESULT_SCHEMA = {"type": "object", "properties": {"results": {"type": "array", "items": {"type": "object", "properties": {"id": {"type": "integer"}, "sentiment": {"type": "string", "enum": ["positive", "neutral", "negative"]}, "sentiment_score": {"type": "number"}, "sarcasm": {"type": "string", "enum": ["sarcastic", "not_sarcastic"]}, "sarcasm_score": {"type": "number"}}, "required": ["id", "sentiment", "sentiment_score", "sarcasm", "sarcasm_score"], "additionalProperties": False}}}, "required": ["results"], "additionalProperties": False}
 
 
-def _classify_batch(
-    texts: list[str],
-    model_name: str,
-    kind: str,
-    progress_callback: Callable[[int, int], None] | None = None,
-) -> list[dict]:
-    if not texts:
-        return []
+def _api_key() -> str | None:
+    if key := os.getenv("OPENAI_API_KEY"):
+        return key
+    try:
+        import streamlit as st
+        return st.secrets.get("OPENAI_API_KEY")
+    except Exception:
+        return None
 
-    classifier = _load_pipeline(model_name)
-    results = []
-    for start in range(0, len(texts), CLASSIFY_CHUNK_SIZE):
-        batch = texts[start:start + CLASSIFY_CHUNK_SIZE]
-        predictions = classifier(
-            batch,
-            batch_size=INFERENCE_BATCH_SIZE,
-            truncation=True,
-            max_length=MAX_INPUT_TOKENS,
+
+def _client():
+    key = _api_key()
+    if not key:
+        raise ModelLoadError("OPENAI_API_KEY is missing. Add it to Streamlit Cloud App settings → Secrets, or set it in your local environment.")
+    try:
+        from openai import OpenAI
+        return OpenAI(api_key=key)
+    except Exception as error:
+        raise ModelLoadError("The OpenAI SDK could not be initialized.") from error
+
+
+def _classify_request(client: Any, batch: list[tuple[int, str]]) -> list[dict]:
+    try:
+        response = client.responses.create(
+            model=GPT_MODEL_NAME,
+            instructions=("Classify each customer review independently. Sentiment is the overall customer attitude: positive, neutral, or negative. Sarcasm means irony or mocking language; ordinary criticism is not sarcasm. Scores are confidence values from 0 to 1. Return one result for every supplied id."),
+            input=json.dumps({"reviews": [{"id": index, "text": text} for index, text in batch]}),
+            text={"format": {"type": "json_schema", "name": "review_classifications", "strict": True, "schema": RESULT_SCHEMA}},
         )
-        for prediction in predictions:
-            item = prediction[0] if isinstance(prediction, list) else prediction
-            raw_label = str(item["label"]).upper()
-            confidence = round(float(item["score"]), 4)
-
-            if kind == "sentiment":
-                if raw_label not in {"POSITIVE", "NEGATIVE"}:
-                    raise ValueError(f"Unexpected sentiment label from {model_name}: {raw_label}")
-                label = raw_label.lower()
-            else:
-                if raw_label not in {"LABEL_0", "LABEL_1"}:
-                    raise ValueError(f"Unexpected sarcasm label from {model_name}: {raw_label}")
-                label = "sarcastic" if raw_label == "LABEL_1" else "not_sarcastic"
-
-            results.append({
-                "label": label,
-                "score": confidence,
-                "signals": [raw_label] if kind == "sentiment" else [],
-                "model": model_name,
-                "model_status": "online",
-                "model_used": model_name,
-            })
-        if progress_callback is not None:
-            progress_callback(len(results), len(texts))
+        results = json.loads(response.output_text)["results"]
+    except Exception as error:
+        raise ModelLoadError("OpenAI could not classify the uploaded reviews. Check the API key, billing, and rate limits.") from error
+    if len(results) != len(batch) or {item.get("id") for item in results} != {index for index, _ in batch}:
+        raise ModelLoadError("OpenAI returned an incomplete review-classification batch. Please retry the upload.")
     return results
 
 
-def classify_sentiments(
-    texts: list[str],
-    progress_callback: Callable[[int, int], None] | None = None,
-) -> list[dict]:
-    """Classify a batch of texts as positive or negative with DistilBERT."""
-    return _classify_batch(texts, SENTIMENT_MODEL_NAME, "sentiment", progress_callback)
+def classify_reviews(texts: list[str], progress_callback: Callable[[int, int], None] | None = None) -> list[dict]:
+    """Classify sentiment and sarcasm together, minimizing API calls and latency."""
+    if not texts:
+        return []
+    client, classified = _client(), {}
+    for start in range(0, len(texts), REQUEST_BATCH_SIZE):
+        batch = list(enumerate(texts[start:start + REQUEST_BATCH_SIZE], start))
+        for item in _classify_request(client, batch):
+            item["sentiment_score"] = round(min(1.0, max(0.0, float(item["sentiment_score"]))), 4)
+            item["sarcasm_score"] = round(min(1.0, max(0.0, float(item["sarcasm_score"]))), 4)
+            classified[item["id"]] = item
+        if progress_callback:
+            progress_callback(min(start + len(batch), len(texts)), len(texts))
+    return [classified[index] for index in range(len(texts))]
 
 
-def classify_sarcasms(
-    texts: list[str],
-    progress_callback: Callable[[int, int], None] | None = None,
-) -> list[dict]:
-    """Classify a batch of English texts for sarcasm with a fine-tuned BERT model."""
-    return _classify_batch(texts, SARCASM_MODEL_NAME, "sarcasm", progress_callback)
+def classify_sentiments(texts: list[str], progress_callback: Callable[[int, int], None] | None = None) -> list[dict]:
+    return [{"label": item["sentiment"], "score": item["sentiment_score"], "signals": ["GPT classification"], "model": GPT_MODEL_NAME, "model_status": "online", "model_used": GPT_MODEL_NAME} for item in classify_reviews(texts, progress_callback)]
+
+
+def classify_sarcasms(texts: list[str], progress_callback: Callable[[int, int], None] | None = None) -> list[dict]:
+    return [{"label": item["sarcasm"], "score": item["sarcasm_score"], "signals": [], "model": GPT_MODEL_NAME, "model_status": "online", "model_used": GPT_MODEL_NAME} for item in classify_reviews(texts, progress_callback)]
 
 
 def classify_sentiment(text: str) -> dict:
-    """Classify one text with DistilBERT."""
     return classify_sentiments([text])[0]
 
 
 def classify_sarcasm(text: str) -> dict:
-    """Classify one text with the sarcasm transformer."""
     return classify_sarcasms([text])[0]

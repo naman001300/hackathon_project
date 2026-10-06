@@ -5,7 +5,7 @@ from datetime import datetime
 import math
 from typing import Any
 from pii_logic import redact_pii
-from sentiment import classify_sarcasms, classify_sentiments
+from sentiment import GPT_MODEL_NAME, classify_reviews
 from themes import detect_themes
 
 SENTIMENTS = ("positive", "neutral", "negative")
@@ -66,37 +66,27 @@ def analyze_reviews(
 
     texts = [review["text"] for review in prepared]
     if progress_callback is not None:
-        progress_callback("sentiment", 0, len(texts))
-    sentiments = classify_sentiments(
+        progress_callback("gpt", 0, len(texts))
+    classifications = classify_reviews(
         texts,
         progress_callback=(
-            lambda completed, total: progress_callback("sentiment", completed, total)
-            if progress_callback is not None
-            else None
-        ),
-    )
-    if progress_callback is not None:
-        progress_callback("sarcasm", 0, len(texts))
-    sarcasms = classify_sarcasms(
-        texts,
-        progress_callback=(
-            lambda completed, total: progress_callback("sarcasm", completed, total)
+            lambda completed, total: progress_callback("gpt", completed, total)
             if progress_callback is not None
             else None
         ),
     )
     analyzed = []
 
-    for review, sentiment, sarcasm in zip(prepared, sentiments, sarcasms):
+    for review, classification in zip(prepared, classifications):
         review_id, text, matches = review["review_id"], review["text"], review["matches"]
         month, rating = review["date"], review["rating"]
         expected = review["expected"]
         if expected in SENTIMENTS:
-            labelled_total += 1; labelled_correct += sentiment["label"] == expected
-        item = {"review_id": review_id, "text": text, "sentiment": sentiment["label"], "sentiment_score": sentiment["score"], "sentiment_signals": sentiment["signals"], "sarcasm": sarcasm["label"], "sarcasm_score": sarcasm["score"], "themes": list(matches), "theme_signals": matches, "rating": rating, "product": review["product"], "date": month}
+            labelled_total += 1; labelled_correct += classification["sentiment"] == expected
+        item = {"review_id": review_id, "text": text, "sentiment": classification["sentiment"], "sentiment_score": classification["sentiment_score"], "sentiment_signals": ["GPT classification"], "sarcasm": classification["sarcasm"], "sarcasm_score": classification["sarcasm_score"], "themes": list(matches), "theme_signals": matches, "rating": rating, "product": review["product"], "date": month, "model": GPT_MODEL_NAME}
         analyzed.append(item)
-        if month: by_month[month][sentiment["label"]] += 1
-        for theme, signals in matches.items(): examples[theme].append({"review_id": review_id, "text": text, "signals": signals, "sentiment": sentiment["label"], "sarcasm": sarcasm["label"]})
+        if month: by_month[month][classification["sentiment"]] += 1
+        for theme, signals in matches.items(): examples[theme].append({"review_id": review_id, "text": text, "signals": signals, "sentiment": classification["sentiment"], "sarcasm": classification["sarcasm"]})
     counts, months = Counter(row["sentiment"] for row in analyzed), sorted(by_month)
     trend = [{"month": month, **{label: by_month[month].get(label, 0) for label in SENTIMENTS}} for month in months]
     midpoint = max(1, len(months) // 2); baseline, recent = Counter(), Counter()
