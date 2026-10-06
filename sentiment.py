@@ -11,7 +11,11 @@ SARCASM_MODEL_NAME = "helinivan/english-sarcasm-detector"
 _SENTIMENT_PIPELINE: Any | None = None
 _SARCASM_PIPELINE: Any | None = None
 _PIPELINE_LOAD_LOCK = Lock()
-CLASSIFY_CHUNK_SIZE = 64
+# Free Streamlit Cloud runs on CPU. Larger batches reduce Python/pipeline overhead
+# dramatically while 128 tokens comfortably covers normal customer reviews.
+CLASSIFY_CHUNK_SIZE = 512
+INFERENCE_BATCH_SIZE = 64
+MAX_INPUT_TOKENS = 128
 
 
 class ModelLoadError(RuntimeError):
@@ -71,7 +75,12 @@ def _classify_batch(
     results = []
     for start in range(0, len(texts), CLASSIFY_CHUNK_SIZE):
         batch = texts[start:start + CLASSIFY_CHUNK_SIZE]
-        predictions = classifier(batch, batch_size=16, truncation=True)
+        predictions = classifier(
+            batch,
+            batch_size=INFERENCE_BATCH_SIZE,
+            truncation=True,
+            max_length=MAX_INPUT_TOKENS,
+        )
         for prediction in predictions:
             item = prediction[0] if isinstance(prediction, list) else prediction
             raw_label = str(item["label"]).upper()
