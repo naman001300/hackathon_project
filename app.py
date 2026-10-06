@@ -3,6 +3,7 @@ import plotly.express as px
 import streamlit as st
 
 from review_pipeline import analyze_reviews
+from sentiment import ModelLoadError
 
 
 st.set_page_config(page_title="ReviewPulse | Review Intelligence", page_icon=":material/analytics:", layout="wide", initial_sidebar_state="collapsed")
@@ -424,8 +425,16 @@ if manual_submitted or upload_submitted:
                 analysis_status.update(label="Review analysis complete", state="complete", expanded=False)
             liquid_progress.empty()
             progress_note.empty()
+        except ModelLoadError as error:
+            liquid_progress.empty()
+            progress_note.empty()
+            st.error("The AI models could not be loaded. Connect to the internet for the first run, then try the upload again.")
+            with st.expander("Technical details"):
+                st.code(str(error))
         except Exception as error:
-            st.error("AI analysis could not run. The transformer models must download from Hugging Face; no rule-based fallback is used.")
+            liquid_progress.empty()
+            progress_note.empty()
+            st.error("AI analysis could not run. The uploaded reviews were not changed.")
             with st.expander("Technical details"):
                 st.code(str(error))
 

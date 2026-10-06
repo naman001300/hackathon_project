@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from threading import Lock
 from typing import Any
 
 SENTIMENT_MODEL_NAME = "distilbert/distilbert-base-uncased-finetuned-sst-2-english"
@@ -9,25 +10,47 @@ SARCASM_MODEL_NAME = "helinivan/english-sarcasm-detector"
 
 _SENTIMENT_PIPELINE: Any | None = None
 _SARCASM_PIPELINE: Any | None = None
+_PIPELINE_LOAD_LOCK = Lock()
 CLASSIFY_CHUNK_SIZE = 64
 
 
+class ModelLoadError(RuntimeError):
+    """Raised when a required Hugging Face model cannot be made available."""
+
+
 def _load_pipeline(model_name: str):
-    """Load and cache a public Hugging Face classifier using system certificates."""
+    """Load a classifier once per process, including during concurrent uploads."""
     global _SENTIMENT_PIPELINE, _SARCASM_PIPELINE
     cached = _SENTIMENT_PIPELINE if model_name == SENTIMENT_MODEL_NAME else _SARCASM_PIPELINE
-    if cached is None:
-        import truststore
+    if cached is not None:
+        return cached
 
-        truststore.inject_into_ssl()
-        from transformers import pipeline
+    # Streamlit can process uploads in separate sessions at the same time. Without
+    # this guard both sessions may try to download/load the same large weights,
+    # which can exhaust memory or leave an upload apparently stuck.
+    with _PIPELINE_LOAD_LOCK:
+        cached = _SENTIMENT_PIPELINE if model_name == SENTIMENT_MODEL_NAME else _SARCASM_PIPELINE
+        if cached is not None:
+            return cached
 
-        cached = pipeline(
-            "text-classification",
-            model=model_name,
-            tokenizer=model_name,
-            truncation=True,
-        )
+        try:
+            import truststore
+
+            truststore.inject_into_ssl()
+            from transformers import pipeline
+
+            cached = pipeline(
+                "text-classification",
+                model=model_name,
+                tokenizer=model_name,
+                truncation=True,
+            )
+        except Exception as error:
+            raise ModelLoadError(
+                f"Could not load {model_name}. Check the internet connection, "
+                "Hugging Face access, and available disk space."
+            ) from error
+
         if model_name == SENTIMENT_MODEL_NAME:
             _SENTIMENT_PIPELINE = cached
         else:

@@ -1,6 +1,8 @@
 from review_pipeline import analyze_reviews
-from sentiment import classify_sentiment, classify_sarcasm
+from sentiment import SENTIMENT_MODEL_NAME, classify_sentiment, classify_sarcasm
 from streamlit.testing.v1 import AppTest
+from unittest.mock import patch
+import sentiment
 
 
 def test_sentiment_uses_distilbert():
@@ -25,6 +27,19 @@ def test_sarcasm_uses_english_bert_classifier():
 
     neutral = classify_sarcasm("The app works well and is easy to use.")
     assert neutral["label"] == "not_sarcastic"
+
+
+def test_model_loader_reuses_a_single_loaded_pipeline():
+    original = sentiment._SENTIMENT_PIPELINE
+    sentinel = object()
+    sentiment._SENTIMENT_PIPELINE = None
+    try:
+        with patch("transformers.pipeline", return_value=sentinel) as pipeline:
+            assert sentiment._load_pipeline(SENTIMENT_MODEL_NAME) is sentinel
+            assert sentiment._load_pipeline(SENTIMENT_MODEL_NAME) is sentinel
+        pipeline.assert_called_once()
+    finally:
+        sentiment._SENTIMENT_PIPELINE = original
 
 
 def test_app_defaults_home_without_analysis_data():
