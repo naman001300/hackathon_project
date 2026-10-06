@@ -130,12 +130,15 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
-cols = st.columns(5)
+sarcastic_count = sum(1 for review in result["reviews"] if review["sarcasm"] == "sarcastic")
+
+cols = st.columns(6)
 cols[0].metric("Reviews analysed", f"{result['total_reviews']:,}")
-cols[1].metric("Positive signals", f"{summary['positive']:,}")
-cols[2].metric("Negative signals", f"{summary['negative']:,}")
-cols[3].metric("PII Masked", f"{quality['pii_redacted_count']:,}")
-cols[4].metric("Validation accuracy", f"{validation['accuracy']:.0%}" if validation["accuracy"] is not None else "Needs labels", help="Against a sentiment_label column, or a rating-derived proxy label.")
+cols[1].metric("Positive sentiment", f"{summary['positive']:,}")
+cols[2].metric("Negative sentiment", f"{summary['negative']:,}")
+cols[3].metric("Sarcastic reviews", f"{sarcastic_count:,}")
+cols[4].metric("PII Masked", f"{quality['pii_redacted_count']:,}")
+cols[5].metric("Validation accuracy", f"{validation['accuracy']:.0%}" if validation["accuracy"] is not None else "Needs labels", help="Against a sentiment_label column, or a rating-derived proxy label.")
 
 chart_theme = dict(template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", font=dict(family="Manrope", color="#c8d5ea"), margin=dict(l=15, r=15, t=20, b=15), height=330)
 left, right = st.columns(2, gap="large")
@@ -160,7 +163,8 @@ for theme in result["themes"]:
     with st.expander(f"{theme['name'].title()}  ·  {theme['count']:,} reviews"):
         for example in theme["examples"]:
             matched = ", ".join(example["signals"]) or "contextual match"
-            st.markdown(f'<div class="evidence"><div class="evidence-meta">REVIEW {example["review_id"]} · {example["sentiment"].upper()} · SIGNALS: {matched}</div>{example["text"]}</div>', unsafe_allow_html=True)
+            sarcasm = example["sarcasm"].upper()
+            st.markdown(f'<div class="evidence"><div class="evidence-meta">REVIEW {example["review_id"]} · {example["sentiment"].upper()} · {sarcasm} · SIGNALS: {matched}</div>{example["text"]}</div>', unsafe_allow_html=True)
 
 if result["trend"]:
     st.subheader("Mood over time")
@@ -182,7 +186,7 @@ audit = pd.DataFrame(result["reviews"])
 if not audit.empty:
     audit["themes"] = audit["themes"].apply(", ".join)
     audit["sentiment_signals"] = audit["sentiment_signals"].apply(", ".join)
-    st.dataframe(audit[["review_id", "date", "product", "rating", "sentiment", "sentiment_signals", "themes", "text"]], use_container_width=True, hide_index=True, height=420)
+    st.dataframe(audit[["review_id", "date", "product", "rating", "sentiment", "sentiment_score", "sarcasm", "sarcasm_score", "sentiment_signals", "themes", "text"]], use_container_width=True, hide_index=True, height=420)
 
 st.markdown(
     '<div class="developer-footer">Developed by Naman · Avni · Abhay · Priyanshu · Alish · Aditya</div>',
