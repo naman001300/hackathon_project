@@ -22,6 +22,14 @@ def test_local_classifier_returns_labels_for_every_review():
     assert GPT_MODEL_NAME == "local-review-classifier-v1"
 
 
+def test_detects_expectation_reversal_and_uninstall_sarcasm():
+    review = "Downloaded this app expecting convenience. Got confusion, crashes, endless loading, and emotional damage instead. At this point, the uninstall button is the most reliable feature."
+    result = classify_reviews([review])[0]
+    assert result["sentiment"] == "negative"
+    assert result["sarcasm"] == "sarcastic"
+    assert result["sarcasm_score"] >= .9
+
+
 def test_app_defaults_home_without_analysis_data():
     app = AppTest.from_file("app.py", default_timeout=30).run()
     assert not app.exception

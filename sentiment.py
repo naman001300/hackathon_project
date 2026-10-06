@@ -10,7 +10,9 @@ REQUEST_BATCH_SIZE = 1000
 
 POSITIVE = {"amazing", "awesome", "best", "brilliant", "easy", "excellent", "fast", "good", "great", "helpful", "improve", "improved", "love", "loved", "nice", "perfect", "recommend", "smooth", "useful", "wonderful"}
 NEGATIVE = {"annoying", "awful", "bad", "broken", "bug", "bugs", "can't", "cannot", "crash", "crashes", "crashing", "disappointing", "error", "fail", "failed", "freezes", "hate", "issue", "lag", "poor", "problem", "refund", "scam", "slow", "terrible", "useless", "worse", "worst"}
-SARCASM_MARKERS = {"as if", "brilliantly broken", "congratulations", "fantastic job", "great job", "just what i needed", "love that", "nice job", "obviously", "perfectly useless", "what a joke", "wow"}
+SARCASM_MARKERS = {"as if", "brilliantly broken", "congratulations", "emotional damage", "fantastic job", "great job", "just what i needed", "love that", "nice job", "obviously", "perfectly useless", "what a joke", "wow"}
+EXPECTATION_WORDS = {"expected", "expecting", "thought", "hoped"}
+REVERSAL_WORDS = {"but", "got", "instead", "rather"}
 WORD = re.compile(r"[a-z]+(?:'[a-z]+)?")
 
 
@@ -32,8 +34,13 @@ def _classify(text: str) -> dict:
     else:
         sentiment, confidence = "neutral", .5
 
-    sarcastic = any(marker in lowered for marker in SARCASM_MARKERS) and (negative > 0 or "!" in text)
-    sarcasm_score = .82 if sarcastic else .08
+    marker_match = any(marker in lowered for marker in SARCASM_MARKERS)
+    expectation_reversal = bool(set(words) & EXPECTATION_WORDS) and bool(set(words) & REVERSAL_WORDS) and negative > 0
+    # Praise for a destructive action is a common review-sarcasm construction:
+    # "the uninstall button is the most reliable feature."
+    destructive_praise = bool({"uninstall", "delete", "remove"} & set(words)) and bool({"best", "only", "reliable", "feature"} & set(words))
+    sarcastic = marker_match or expectation_reversal or destructive_praise
+    sarcasm_score = .96 if sarcastic and (expectation_reversal or destructive_praise) else .88 if sarcastic else .08
     return {"sentiment": sentiment, "sentiment_score": round(confidence, 4), "sarcasm": "sarcastic" if sarcastic else "not_sarcastic", "sarcasm_score": sarcasm_score}
 
 
