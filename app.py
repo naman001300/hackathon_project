@@ -7,12 +7,57 @@ from review_pipeline import analyze_reviews
 
 st.set_page_config(page_title="ReviewPulse | Review Intelligence", page_icon=":material/analytics:", layout="wide", initial_sidebar_state="collapsed")
 
+CURSOR_SPARKLES = st.components.v2.component(
+        "reviewpulse_cursor_sparkles",
+        html='<div id="cursor-sparkle-layer" aria-hidden="true"></div>',
+        css="""
+        #cursor-sparkle-layer { position:fixed; left:0; top:0; width:0; height:0; overflow:visible; pointer-events:none; z-index:2147483646; }
+        .cursor-sparkle { position:fixed; left:var(--spark-x); top:var(--spark-y); color:var(--spark-color); font:700 15px/1 sans-serif; text-shadow:0 0 8px currentColor,0 0 16px currentColor; pointer-events:none; will-change:transform,opacity; animation:sparkle-drift 780ms cubic-bezier(.18,.65,.3,1) forwards; }
+        @keyframes sparkle-drift { 0% { opacity:0; transform:translate(-50%,-50%) scale(.25) rotate(-20deg); } 18% { opacity:.96; transform:translate(-50%,-50%) scale(1) rotate(0); } 100% { opacity:0; transform:translate(calc(-50% + var(--spark-dx)),calc(-50% + var(--spark-dy))) scale(0) rotate(105deg); } }
+        @media (prefers-reduced-motion: reduce) { .cursor-sparkle { animation-duration:1ms; } }
+        """,
+        js="""
+        export default function (component) {
+            const { parentElement } = component;
+            const layer = parentElement.querySelector("#cursor-sparkle-layer");
+            if (!layer) return;
+
+            let lastSpawn = 0;
+            const onPointerMove = (event) => {
+                if (event.pointerType === "touch") return;
+                const now = performance.now();
+                if (now - lastSpawn < 58) return;
+                lastSpawn = now;
+
+                const count = Math.random() < 0.22 ? 2 : 1;
+                for (let index = 0; index < count; index += 1) {
+                    const spark = document.createElement("span");
+                    spark.className = "cursor-sparkle";
+                    spark.textContent = Math.random() < 0.55 ? "✦" : "✧";
+                    spark.style.setProperty("--spark-x", `${event.clientX + (Math.random() - 0.5) * 12}px`);
+                    spark.style.setProperty("--spark-y", `${event.clientY + (Math.random() - 0.5) * 12}px`);
+                    spark.style.setProperty("--spark-dx", `${(Math.random() - 0.5) * 34}px`);
+                    spark.style.setProperty("--spark-dy", `${-8 - Math.random() * 28}px`);
+                    spark.style.setProperty("--spark-color", Math.random() < 0.78 ? "#a8f5d5" : "#ffd4a8");
+                    layer.appendChild(spark);
+                    spark.addEventListener("animationend", () => spark.remove(), { once: true });
+                }
+
+                while (layer.childElementCount > 24) layer.firstElementChild.remove();
+            };
+
+            document.addEventListener("pointermove", onPointerMove, { passive: true });
+            return () => document.removeEventListener("pointermove", onPointerMove);
+        }
+        """,
+)
+
 st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Manrope:wght@400;500;600;700;800&display=swap');
 
 :root { --ink:#edf6f2; --muted:#9caaa4; --panel:rgba(24,36,33,.9); --line:rgba(170,198,184,.16); --cyan:#65dfbd; --violet:#f2a77a; }
-.stApp { position:relative; min-height:100vh; background-color:#0b1312; background-image:radial-gradient(1px 1px at 29px 49px,rgba(205,246,228,.82) 98%,transparent 100%),radial-gradient(1px 1px at 137px 218px,rgba(101,223,189,.78) 98%,transparent 100%),radial-gradient(1.5px 1.5px at 247px 362px,rgba(237,246,242,.72) 98%,transparent 100%),radial-gradient(1.5px 1.5px at 403px 174px,rgba(242,167,122,.64) 98%,transparent 100%),radial-gradient(1px 1px at 81px 291px,rgba(205,246,228,.68) 98%,transparent 100%),radial-gradient(1.2px 1.2px at 308px 93px,rgba(101,223,189,.68) 98%,transparent 100%),radial-gradient(1px 1px at 183px 414px,rgba(237,246,242,.62) 98%,transparent 100%),radial-gradient(1.5px 1.5px at 552px 311px,rgba(242,167,122,.54) 98%,transparent 100%),radial-gradient(1.2px 1.2px at 45px 120px,rgba(205,246,228,.5) 98%,transparent 100%),radial-gradient(1px 1px at 195px 260px,rgba(101,223,189,.54) 98%,transparent 100%),radial-gradient(1.3px 1.3px at 340px 410px,rgba(237,246,242,.46) 98%,transparent 100%),radial-gradient(1px 1px at 95px 374px,rgba(242,167,122,.48) 98%,transparent 100%),radial-gradient(1.6px 1.6px at 515px 100px,rgba(205,246,228,.46) 98%,transparent 100%),radial-gradient(1px 1px at 270px 145px,rgba(101,223,189,.52) 98%,transparent 100%),linear-gradient(118deg,#0b1312 0%,#101b19 55%,#171a16 100%); background-size:280px 460px,420px 620px,560px 760px,820px 980px,340px 520px,500px 680px,660px 840px,760px 920px,240px 380px,380px 540px,600px 780px,460px 650px,730px 880px,520px 720px,100% 100%; background-position:0 0,90px 0,180px 0,240px 0,40px 0,150px 0,260px 0,320px 0,20px 0,110px 0,220px 0,50px 0,290px 0,370px 0,0 0; background-repeat:repeat,repeat,repeat,repeat,repeat,repeat,repeat,repeat,repeat,repeat,repeat,repeat,repeat,repeat,no-repeat; animation:soft-starfall 92s linear infinite; color:var(--ink); font-family:'Manrope',sans-serif; }
+.stApp { position:relative; min-height:100vh; background-color:#0b1312; background-image:radial-gradient(1px 1px at 29px 49px,rgba(205,246,228,.82) 98%,transparent 100%),radial-gradient(1px 1px at 137px 218px,rgba(101,223,189,.78) 98%,transparent 100%),radial-gradient(1.5px 1.5px at 247px 362px,rgba(237,246,242,.72) 98%,transparent 100%),radial-gradient(1.5px 1.5px at 403px 174px,rgba(242,167,122,.64) 98%,transparent 100%),radial-gradient(1px 1px at 81px 291px,rgba(205,246,228,.68) 98%,transparent 100%),radial-gradient(1.2px 1.2px at 308px 93px,rgba(101,223,189,.68) 98%,transparent 100%),radial-gradient(1px 1px at 183px 414px,rgba(237,246,242,.62) 98%,transparent 100%),radial-gradient(1.5px 1.5px at 552px 311px,rgba(242,167,122,.54) 98%,transparent 100%),radial-gradient(1.2px 1.2px at 45px 120px,rgba(205,246,228,.5) 98%,transparent 100%),radial-gradient(1px 1px at 195px 260px,rgba(101,223,189,.54) 98%,transparent 100%),radial-gradient(1.3px 1.3px at 340px 410px,rgba(237,246,242,.46) 98%,transparent 100%),radial-gradient(1px 1px at 95px 374px,rgba(242,167,122,.48) 98%,transparent 100%),radial-gradient(1.6px 1.6px at 515px 100px,rgba(205,246,228,.46) 98%,transparent 100%),radial-gradient(1px 1px at 270px 145px,rgba(101,223,189,.52) 98%,transparent 100%),radial-gradient(1.2px 1.2px at 110px 210px,rgba(205,246,228,.48) 98%,transparent 100%),radial-gradient(1.4px 1.4px at 460px 510px,rgba(101,223,189,.44) 98%,transparent 100%),radial-gradient(1px 1px at 225px 75px,rgba(237,246,242,.52) 98%,transparent 100%),radial-gradient(1.4px 1.4px at 600px 220px,rgba(242,167,122,.42) 98%,transparent 100%),repeating-linear-gradient(90deg,transparent 0 39px,rgba(101,223,189,.035) 39px 40px),repeating-linear-gradient(0deg,transparent 0 39px,rgba(101,223,189,.028) 39px 40px),linear-gradient(118deg,#0b1312 0%,#101b19 55%,#171a16 100%); background-size:280px 460px,420px 620px,560px 760px,820px 980px,340px 520px,500px 680px,660px 840px,760px 920px,240px 380px,380px 540px,600px 780px,460px 650px,730px 880px,520px 720px,300px 480px,640px 820px,460px 580px,880px 1000px,80px 80px,80px 80px,100% 100%; background-position:0 0,90px 0,180px 0,240px 0,40px 0,150px 0,260px 0,320px 0,20px 0,110px 0,220px 0,50px 0,290px 0,370px 0,30px 0,190px 0,70px 0,360px 0,0 0,0 0,0 0; background-repeat:repeat,repeat,repeat,repeat,repeat,repeat,repeat,repeat,repeat,repeat,repeat,repeat,repeat,repeat,repeat,repeat,repeat,repeat,repeat,repeat,no-repeat; animation:soft-starfall 55s linear infinite; color:var(--ink); font-family:'Manrope',sans-serif; }
 [data-testid="stHeader"] { background:transparent; }
 .block-container { position:relative; z-index:1; max-width:1420px; padding:2.4rem 3rem 4rem; }
 [data-testid="stSidebar"], [data-testid="stSidebarCollapsedControl"] { display:none !important; }
@@ -82,7 +127,7 @@ h2 { font-size:1.18rem !important; margin-top:2rem !important; }
 [data-testid="stExpander"] { animation-delay:.58s; }
 @keyframes fade-up { from { opacity:0; transform:translateY(14px); } to { opacity:1; transform:translateY(0); } }
 @keyframes rise-in { from { opacity:0; transform:translateY(20px); } to { opacity:1; transform:translateY(0); } }
-@keyframes soft-starfall { to { background-position:0 460px,90px 620px,180px 760px,240px 980px,40px 520px,150px 680px,260px 840px,320px 920px,20px 380px,110px 540px,220px 780px,50px 650px,290px 880px,370px 720px,0 0; } }
+@keyframes soft-starfall { to { background-position:0 460px,90px 620px,180px 760px,240px 980px,40px 520px,150px 680px,260px 840px,320px 920px,20px 380px,110px 540px,220px 780px,50px 650px,290px 880px,370px 720px,30px 480px,190px 820px,70px 580px,360px 1000px,40px 40px,-40px 40px,0 0; } }
 @keyframes waveform { 0%,100% { transform:scaleY(.62); opacity:.72; } 50% { transform:scaleY(1); opacity:1; } }
 @keyframes signal-pulse { 0%,100% { opacity:1; box-shadow:0 0 0 0 rgba(101,223,189,.38); } 50% { opacity:.68; box-shadow:0 0 0 6px rgba(101,223,189,0); } }
 @keyframes live-pulse { 0%,100% { box-shadow:0 0 0 rgba(66,217,255,0); } 50% { box-shadow:0 0 18px rgba(66,217,255,.16); } }
@@ -110,6 +155,8 @@ div[data-baseweb="select"] > div, [data-testid="stFileUploader"] section { backg
 </style>
 """, unsafe_allow_html=True)
 
+CURSOR_SPARKLES(key="reviewpulse_cursor_sparkles")
+
 NAV_ITEMS = ["Home", "Analyze", "Dashboard", "Trust", "Drift"]
 NAV_ICONS = {
     "Home": "home",
@@ -128,6 +175,7 @@ def _open_dashboard():
     st.session_state["reviewpulse_dock"] = "Dashboard"
 
 
+st.session_state.setdefault("reviewpulse_dock", "Home")
 brand, dock = st.columns([1.15, 5], vertical_alignment="center", gap="large")
 with brand:
     st.markdown('<div class="dock-brand"><div class="brand-mark"><i></i><i></i><i></i><i></i></div><div><div class="brand-name">Review<span>Pulse</span></div><div class="brand-subline">REVIEW INTELLIGENCE</div></div></div>', unsafe_allow_html=True)
@@ -136,7 +184,6 @@ with dock:
         "Workspace navigation",
         NAV_ITEMS,
         format_func=lambda item: f":material/{NAV_ICONS[item]}: {item}",
-        default="Home",
         required=True,
         key="reviewpulse_dock",
         label_visibility="collapsed",
