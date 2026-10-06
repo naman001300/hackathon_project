@@ -4,7 +4,7 @@ from datetime import datetime
 import math
 from typing import Any
 from pii_logic import redact_pii
-from sentiment import classify_sentiment
+from sentiment import classify_sarcasm, classify_sentiment
 from themes import detect_themes
 
 SENTIMENTS = ("positive", "neutral", "negative")
@@ -48,15 +48,17 @@ def analyze_reviews(reviews: list[dict]) -> dict:
             invalid_rows += 1; continue
         text = redact_pii(raw)
         pii_redacted += text != raw
-        sentiment, matches = classify_sentiment(text), detect_themes(text)
+        sentiment = classify_sentiment(text)
+        sarcasm = classify_sarcasm(text)
+        matches = detect_themes(text)
         month = _normalise_date(review.get("date"))
         expected = str(review.get("sentiment_label") or "").lower().strip() or _expected_label(rating)
         if expected in SENTIMENTS:
             labelled_total += 1; labelled_correct += sentiment["label"] == expected
-        item = {"review_id": review_id, "text": text, "sentiment": sentiment["label"], "sentiment_score": sentiment["score"], "sentiment_signals": sentiment["signals"], "themes": list(matches), "theme_signals": matches, "rating": rating, "product": review.get("product"), "date": month}
+        item = {"review_id": review_id, "text": text, "sentiment": sentiment["label"], "sentiment_score": sentiment["score"], "sentiment_signals": sentiment["signals"], "sarcasm": sarcasm["label"], "sarcasm_score": sarcasm["score"], "themes": list(matches), "theme_signals": matches, "rating": rating, "product": review.get("product"), "date": month}
         analyzed.append(item)
         if month: by_month[month][sentiment["label"]] += 1
-        for theme, signals in matches.items(): examples[theme].append({"review_id": review_id, "text": text, "signals": signals, "sentiment": sentiment["label"]})
+        for theme, signals in matches.items(): examples[theme].append({"review_id": review_id, "text": text, "signals": signals, "sentiment": sentiment["label"], "sarcasm": sarcasm["label"]})
     counts, months = Counter(row["sentiment"] for row in analyzed), sorted(by_month)
     trend = [{"month": month, **{label: by_month[month].get(label, 0) for label in SENTIMENTS}} for month in months]
     midpoint = max(1, len(months) // 2); baseline, recent = Counter(), Counter()

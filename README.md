@@ -5,9 +5,11 @@ An offline, privacy-first dashboard for turning thousands of customer reviews in
 ## What it demonstrates
 
 - Batch CSV analysis with automatic support for common review-app export columns (`review`, `rating`, `date`, `app_name`) or the simple `review_text` schema.
-- Explainable sentiment and theme detection, with each theme linked to redacted source verbatims and matching terms.
+- BERT-based sentiment classification through Hugging Face when the model is available.
+- Explainable theme detection, with each theme linked to redacted source verbatims and matching terms.
 - PII redaction for email addresses, phone numbers, card-like values, and URLs before reviews are displayed or analysed.
 - Model validation against an optional `sentiment_label` column (or a clearly labelled rating-derived proxy), plus monthly sentiment drift monitoring.
+- A safe neutral fallback when Hugging Face access is unavailable.
 - A FastAPI endpoint for integrating the same analysis in another frontend.
 
 ## Run the dashboard

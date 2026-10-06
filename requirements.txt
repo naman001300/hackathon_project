@@ -4,3 +4,6 @@ streamlit
 openpyxl
 fastapi
 uvicorn
+transformers
+torch
+pytest
