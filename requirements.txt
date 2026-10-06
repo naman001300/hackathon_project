@@ -4,5 +4,4 @@ streamlit
 openpyxl
 fastapi
 uvicorn
-openai
 pytest

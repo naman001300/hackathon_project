@@ -225,7 +225,7 @@ if active_page == "Home":
     </section>
     """, unsafe_allow_html=True)
     st.button("Analyze reviews", type="primary", icon=":material/arrow_forward:", on_click=_open_analyzer)
-    st.markdown('<div class="home-details-label">FROM CUSTOMER WORDS TO PRODUCT SIGNALS</div><div class="home-detail-grid"><div class="home-detail"><strong>Read the tone</strong><p>GPT classifies sentiment and sarcasm together.</p></div><div class="home-detail"><strong>Keep the evidence</strong><p>Theme signals link findings back to review text.</p></div><div class="home-detail"><strong>Protect the person</strong><p>Contact details are masked before AI analysis.</p></div></div>', unsafe_allow_html=True)
+    st.markdown('<div class="home-details-label">FROM CUSTOMER WORDS TO PRODUCT SIGNALS</div><div class="home-detail-grid"><div class="home-detail"><strong>Read the tone</strong><p>Local classification keeps large uploads fast.</p></div><div class="home-detail"><strong>Keep the evidence</strong><p>Theme signals link findings back to review text.</p></div><div class="home-detail"><strong>Protect the person</strong><p>Contact details are masked before analysis.</p></div></div>', unsafe_allow_html=True)
     st.markdown('<div class="developer-footer">REVIEWPULSE · PRIVATE BY DESIGN · EVIDENCE FIRST</div>', unsafe_allow_html=True)
     st.stop()
 
@@ -281,7 +281,7 @@ if active_page in {"Dashboard", "Trust", "Drift"}:
         metrics[1].metric("Labelled validation", f"{validation['accuracy']:.0%}" if validation["accuracy"] is not None else "Needs labels")
         metrics[2].metric("Validation sample", f"{validation['labelled_sample_size']:,}")
         st.subheader("Model provenance")
-        st.caption("Sentiment and sarcasm: GPT-4.1 mini through the OpenAI API, returned as one structured classification per review. Validate outputs against a representative human-labelled review set before production use.")
+        st.caption("Sentiment and sarcasm run locally with no API key, model download, or external data transfer. Validate outputs against a representative human-labelled review set before production use.")
         st.subheader("Protected audit trail")
         audit = pd.DataFrame(result["reviews"])
         if not audit.empty:
@@ -400,9 +400,9 @@ if manual_submitted or upload_submitted:
         progress_note = st.empty()
 
         def update_analysis_progress(phase, completed, total):
-            phase_name = "GPT review analysis"
+            phase_name = "Local review analysis"
             percent = round(completed / max(total, 1) * 100)
-            caption = "Sending redacted review batches to GPT…" if completed == 0 else f"{completed:,} of {total:,} reviews classified."
+            caption = "Classifying reviews locally…" if completed == 0 else f"{completed:,} of {total:,} reviews classified."
             liquid_progress.markdown(
                 f'<div class="liquid-progress" role="progressbar" aria-valuenow="{percent}" aria-valuemin="0" aria-valuemax="100"><div class="liquid-vessel"><div class="liquid-fill" style="--liquid-level:{percent}%"><i class="liquid-bubble"></i><i class="liquid-bubble"></i><i class="liquid-bubble"></i></div><span class="liquid-percent">{percent}%</span></div><div class="liquid-copy"><div class="liquid-phase">{phase_name}</div><div class="liquid-caption">{caption}</div></div></div>',
                 unsafe_allow_html=True,
@@ -422,12 +422,6 @@ if manual_submitted or upload_submitted:
                 analysis_status.update(label="Review analysis complete", state="complete", expanded=False)
             liquid_progress.empty()
             progress_note.empty()
-        except ModelLoadError as error:
-            liquid_progress.empty()
-            progress_note.empty()
-            st.error("GPT analysis could not start. Add a valid OPENAI_API_KEY to the app secrets, then try the upload again.")
-            with st.expander("Technical details"):
-                st.code(str(error))
         except Exception as error:
             liquid_progress.empty()
             progress_note.empty()

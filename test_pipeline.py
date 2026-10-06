@@ -1,5 +1,3 @@
-import json
-from types import SimpleNamespace
 from unittest.mock import patch
 
 from review_pipeline import analyze_reviews
@@ -17,14 +15,11 @@ def _labels(texts, progress_callback=None):
     return rows
 
 
-def test_gpt_returns_structured_labels_for_every_review():
-    payload = {"results": [{"id": 0, "sentiment": "positive", "sentiment_score": .92, "sarcasm": "not_sarcastic", "sarcasm_score": .88}]}
-    client = SimpleNamespace(responses=SimpleNamespace(create=lambda **_: SimpleNamespace(output_text=json.dumps(payload))))
-    with patch("sentiment._client", return_value=client):
-        result = classify_reviews(["I love this app"])
+def test_local_classifier_returns_labels_for_every_review():
+    result = classify_reviews(["I love this app", "The login is broken and slow"])
     assert result[0]["sentiment"] == "positive"
-    assert result[0]["sarcasm"] == "not_sarcastic"
-    assert GPT_MODEL_NAME == "gpt-4.1-mini"
+    assert result[1]["sentiment"] == "negative"
+    assert GPT_MODEL_NAME == "local-review-classifier-v1"
 
 
 def test_app_defaults_home_without_analysis_data():

@@ -1,81 +1,58 @@
-"""GPT-powered review sentiment and sarcasm classification."""
+"""Fast, local review classification with no model download or API key."""
 from __future__ import annotations
 
-import json
-import os
 from collections.abc import Callable
-from typing import Any
+import re
 
-GPT_MODEL_NAME = os.getenv("OPENAI_REVIEW_MODEL", "gpt-4.1-mini")
-REQUEST_BATCH_SIZE = 200
+
+GPT_MODEL_NAME = "local-review-classifier-v1"
+REQUEST_BATCH_SIZE = 1000
+
+POSITIVE = {"amazing", "awesome", "best", "brilliant", "easy", "excellent", "fast", "good", "great", "helpful", "improve", "improved", "love", "loved", "nice", "perfect", "recommend", "smooth", "useful", "wonderful"}
+NEGATIVE = {"annoying", "awful", "bad", "broken", "bug", "bugs", "can't", "cannot", "crash", "crashes", "crashing", "disappointing", "error", "fail", "failed", "freezes", "hate", "issue", "lag", "poor", "problem", "refund", "scam", "slow", "terrible", "useless", "worse", "worst"}
+SARCASM_MARKERS = {"as if", "brilliantly broken", "congratulations", "fantastic job", "great job", "just what i needed", "love that", "nice job", "obviously", "perfectly useless", "what a joke", "wow"}
+WORD = re.compile(r"[a-z]+(?:'[a-z]+)?")
 
 
 class ModelLoadError(RuntimeError):
-    """Raised when the OpenAI-powered review analysis cannot be run."""
+    """Compatibility error type for the app's analysis boundary."""
 
 
-RESULT_SCHEMA = {"type": "object", "properties": {"results": {"type": "array", "items": {"type": "object", "properties": {"id": {"type": "integer"}, "sentiment": {"type": "string", "enum": ["positive", "neutral", "negative"]}, "sentiment_score": {"type": "number"}, "sarcasm": {"type": "string", "enum": ["sarcastic", "not_sarcastic"]}, "sarcasm_score": {"type": "number"}}, "required": ["id", "sentiment", "sentiment_score", "sarcasm", "sarcasm_score"], "additionalProperties": False}}}, "required": ["results"], "additionalProperties": False}
+def _classify(text: str) -> dict:
+    lowered = text.lower()
+    words = WORD.findall(lowered)
+    positive = sum(word in POSITIVE for word in words)
+    negative = sum(word in NEGATIVE for word in words)
+    # Negation reverses the closest positive word in common review phrasing.
+    negative += sum(1 for index, word in enumerate(words[:-1]) if word in {"not", "never", "no"} and words[index + 1] in POSITIVE)
+    if positive > negative:
+        sentiment, confidence = "positive", min(.99, .55 + .1 * (positive - negative))
+    elif negative > positive:
+        sentiment, confidence = "negative", min(.99, .55 + .1 * (negative - positive))
+    else:
+        sentiment, confidence = "neutral", .5
 
-
-def _api_key() -> str | None:
-    if key := os.getenv("OPENAI_API_KEY"):
-        return key
-    try:
-        import streamlit as st
-        return st.secrets.get("OPENAI_API_KEY")
-    except Exception:
-        return None
-
-
-def _client():
-    key = _api_key()
-    if not key:
-        raise ModelLoadError("OPENAI_API_KEY is missing. Add it to Streamlit Cloud App settings → Secrets, or set it in your local environment.")
-    try:
-        from openai import OpenAI
-        return OpenAI(api_key=key)
-    except Exception as error:
-        raise ModelLoadError("The OpenAI SDK could not be initialized.") from error
-
-
-def _classify_request(client: Any, batch: list[tuple[int, str]]) -> list[dict]:
-    try:
-        response = client.responses.create(
-            model=GPT_MODEL_NAME,
-            instructions=("Classify each customer review independently. Sentiment is the overall customer attitude: positive, neutral, or negative. Sarcasm means irony or mocking language; ordinary criticism is not sarcasm. Scores are confidence values from 0 to 1. Return one result for every supplied id."),
-            input=json.dumps({"reviews": [{"id": index, "text": text} for index, text in batch]}),
-            text={"format": {"type": "json_schema", "name": "review_classifications", "strict": True, "schema": RESULT_SCHEMA}},
-        )
-        results = json.loads(response.output_text)["results"]
-    except Exception as error:
-        raise ModelLoadError("OpenAI could not classify the uploaded reviews. Check the API key, billing, and rate limits.") from error
-    if len(results) != len(batch) or {item.get("id") for item in results} != {index for index, _ in batch}:
-        raise ModelLoadError("OpenAI returned an incomplete review-classification batch. Please retry the upload.")
-    return results
+    sarcastic = any(marker in lowered for marker in SARCASM_MARKERS) and (negative > 0 or "!" in text)
+    sarcasm_score = .82 if sarcastic else .08
+    return {"sentiment": sentiment, "sentiment_score": round(confidence, 4), "sarcasm": "sarcastic" if sarcastic else "not_sarcastic", "sarcasm_score": sarcasm_score}
 
 
 def classify_reviews(texts: list[str], progress_callback: Callable[[int, int], None] | None = None) -> list[dict]:
-    """Classify sentiment and sarcasm together, minimizing API calls and latency."""
-    if not texts:
-        return []
-    client, classified = _client(), {}
+    """Classify reviews locally in bounded chunks so large uploads stay responsive."""
+    results = []
     for start in range(0, len(texts), REQUEST_BATCH_SIZE):
-        batch = list(enumerate(texts[start:start + REQUEST_BATCH_SIZE], start))
-        for item in _classify_request(client, batch):
-            item["sentiment_score"] = round(min(1.0, max(0.0, float(item["sentiment_score"]))), 4)
-            item["sarcasm_score"] = round(min(1.0, max(0.0, float(item["sarcasm_score"]))), 4)
-            classified[item["id"]] = item
+        results.extend(_classify(text) for text in texts[start:start + REQUEST_BATCH_SIZE])
         if progress_callback:
-            progress_callback(min(start + len(batch), len(texts)), len(texts))
-    return [classified[index] for index in range(len(texts))]
+            progress_callback(len(results), len(texts))
+    return results
 
 
 def classify_sentiments(texts: list[str], progress_callback: Callable[[int, int], None] | None = None) -> list[dict]:
-    return [{"label": item["sentiment"], "score": item["sentiment_score"], "signals": ["GPT classification"], "model": GPT_MODEL_NAME, "model_status": "online", "model_used": GPT_MODEL_NAME} for item in classify_reviews(texts, progress_callback)]
+    return [{"label": item["sentiment"], "score": item["sentiment_score"], "signals": ["local classification"], "model": GPT_MODEL_NAME, "model_status": "local", "model_used": GPT_MODEL_NAME} for item in classify_reviews(texts, progress_callback)]
 
 
 def classify_sarcasms(texts: list[str], progress_callback: Callable[[int, int], None] | None = None) -> list[dict]:
-    return [{"label": item["sarcasm"], "score": item["sarcasm_score"], "signals": [], "model": GPT_MODEL_NAME, "model_status": "online", "model_used": GPT_MODEL_NAME} for item in classify_reviews(texts, progress_callback)]
+    return [{"label": item["sarcasm"], "score": item["sarcasm_score"], "signals": [], "model": GPT_MODEL_NAME, "model_status": "local", "model_used": GPT_MODEL_NAME} for item in classify_reviews(texts, progress_callback)]
 
 
 def classify_sentiment(text: str) -> dict:
