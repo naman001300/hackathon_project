@@ -6,4 +6,5 @@ fastapi
 uvicorn
 transformers
 torch
+truststore
 pytest

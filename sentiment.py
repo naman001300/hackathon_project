@@ -1,97 +1,85 @@
-"""Transformer-based sentiment and sarcasm classification with safe fallbacks."""
+"""Transformer-only sentiment and sarcasm classification."""
 from __future__ import annotations
 
-import re
 from typing import Any
 
-SENTIMENT_MODEL_NAME = "distilbert-base-uncased-finetuned-sentiment"
-SARCASM_MODEL_NAME = "cardiffnlp/twitter-roberta-base-sarcasm"
+SENTIMENT_MODEL_NAME = "distilbert/distilbert-base-uncased-finetuned-sst-2-english"
+SARCASM_MODEL_NAME = "helinivan/english-sarcasm-detector"
 
 _SENTIMENT_PIPELINE: Any | None = None
 _SARCASM_PIPELINE: Any | None = None
 
-_IRONIC_PATTERN = re.compile(
-    r"\b(?:great|awesome|fantastic|love|excellent|amazing|perfect|brilliant|nice|wonderful)\b"
-    r".*\b(?:but|however|still|yet|though|unless|except|really|totally|absolutely|another)\b"
-    r".*\b(?:bad|broken|slow|terrible|awful|worse|hate|crash|bug|delay|problem|useless|worse)\b"
-    r"|\b(?:yeah|sure|great|nice|fantastic|amazing)\b.*\b(?:not|never|no|doesn't|doesnt)\b"
-    r"|\b(?:great|love|amazing)\b.*\b(?:update|feature|improvement)\b.*\b(?:worse|breaks|fails|crashes|slow)\b",
-    re.IGNORECASE,
-)
 
+def _load_pipeline(model_name: str):
+    """Load and cache a public Hugging Face classifier using system certificates."""
+    global _SENTIMENT_PIPELINE, _SARCASM_PIPELINE
+    cached = _SENTIMENT_PIPELINE if model_name == SENTIMENT_MODEL_NAME else _SARCASM_PIPELINE
+    if cached is None:
+        import truststore
 
-def _load_pipeline(model_name: str, task: str):
-    """Load a Hugging Face pipeline lazily."""
-    pipeline = _SENTIMENT_PIPELINE if model_name == SENTIMENT_MODEL_NAME else _SARCASM_PIPELINE
-    if pipeline is None:
-        try:
-            from transformers import pipeline as build_pipeline
+        truststore.inject_into_ssl()
+        from transformers import pipeline
 
-            pipeline = build_pipeline(task, model=model_name, tokenizer=model_name, truncation=True)
-        except Exception:
-            pipeline = False
+        cached = pipeline(
+            "text-classification",
+            model=model_name,
+            tokenizer=model_name,
+            truncation=True,
+        )
         if model_name == SENTIMENT_MODEL_NAME:
-            globals()["_SENTIMENT_PIPELINE"] = pipeline
+            _SENTIMENT_PIPELINE = cached
         else:
-            globals()["_SARCASM_PIPELINE"] = pipeline
-    return pipeline
+            _SARCASM_PIPELINE = cached
+    return cached
+
+
+def _classify_batch(texts: list[str], model_name: str, kind: str) -> list[dict]:
+    if not texts:
+        return []
+
+    classifier = _load_pipeline(model_name)
+    predictions = classifier(texts, batch_size=16, truncation=True)
+    results = []
+    for prediction in predictions:
+        item = prediction[0] if isinstance(prediction, list) else prediction
+        raw_label = str(item["label"]).upper()
+        confidence = round(float(item["score"]), 4)
+
+        if kind == "sentiment":
+            if raw_label not in {"POSITIVE", "NEGATIVE"}:
+                raise ValueError(f"Unexpected sentiment label from {model_name}: {raw_label}")
+            label = raw_label.lower()
+        else:
+            if raw_label not in {"LABEL_0", "LABEL_1"}:
+                raise ValueError(f"Unexpected sarcasm label from {model_name}: {raw_label}")
+            label = "sarcastic" if raw_label == "LABEL_1" else "not_sarcastic"
+
+        results.append({
+            "label": label,
+            "score": confidence,
+            "signals": [raw_label] if kind == "sentiment" else [],
+            "model": model_name,
+            "model_status": "online",
+            "model_used": model_name,
+        })
+    return results
+
+
+def classify_sentiments(texts: list[str]) -> list[dict]:
+    """Classify a batch of texts as positive or negative with DistilBERT."""
+    return _classify_batch(texts, SENTIMENT_MODEL_NAME, "sentiment")
+
+
+def classify_sarcasms(texts: list[str]) -> list[dict]:
+    """Classify a batch of English texts for sarcasm with a fine-tuned BERT model."""
+    return _classify_batch(texts, SARCASM_MODEL_NAME, "sarcasm")
 
 
 def classify_sentiment(text: str) -> dict:
-    """Return BERT sentiment, or a conservative fallback when the model is unavailable."""
-    pipeline = _load_pipeline(SENTIMENT_MODEL_NAME, "text-classification")
-
-    if pipeline is False:
-        return {
-            "label": "neutral",
-            "score": 0.0,
-            "signals": [],
-            "model": SENTIMENT_MODEL_NAME,
-            "model_status": "unavailable",
-        }
-
-    result = pipeline(text)[0]
-    label = "positive" if result["label"] == "POSITIVE" else "negative"
-    score = float(result["score"])
-
-    if label == "positive":
-        score = score if score > 0.5 else 0.5
-    else:
-        score = 1.0 - score if score < 0.5 else 0.5
-
-    return {
-        "label": label,
-        "score": round(score, 2),
-        "signals": [result["label"]],
-        "model": SENTIMENT_MODEL_NAME,
-        "model_status": "online",
-    }
+    """Classify one text with DistilBERT."""
+    return classify_sentiments([text])[0]
 
 
 def classify_sarcasm(text: str) -> dict:
-    """Detect sarcasm with a dedicated RoBERTa model when available, or with a local fallback."""
-    pipeline = _load_pipeline(SARCASM_MODEL_NAME, "text-classification")
-
-    if pipeline is False:
-        score = 0.9 if _IRONIC_PATTERN.search(text) else 0.1
-        label = "sarcastic" if score > 0.5 else "not_sarcastic"
-        return {
-            "label": label,
-            "score": round(score, 2),
-            "model": SARCASM_MODEL_NAME,
-            "model_status": "fallback",
-        }
-
-    result = pipeline(text)[0]
-    is_sarcastic = result["label"] == "LABEL_1"
-    score = float(result["score"])
-
-    if not is_sarcastic:
-        score = 1.0 - score
-
-    return {
-        "label": "sarcastic" if is_sarcastic else "not_sarcastic",
-        "score": round(score, 2),
-        "model": SARCASM_MODEL_NAME,
-        "model_status": "online",
-    }
+    """Classify one text with the sarcasm transformer."""
+    return classify_sarcasms([text])[0]

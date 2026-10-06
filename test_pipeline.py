@@ -1,24 +1,71 @@
 from review_pipeline import analyze_reviews
 from sentiment import classify_sentiment, classify_sarcasm
+from streamlit.testing.v1 import AppTest
 
 
-def test_sentiment_uses_bert_classifier_when_available():
+def test_sentiment_uses_distilbert():
     result = classify_sentiment("I love this app")
-    assert result["model"] == "distilbert-base-uncased-finetuned-sentiment"
-    assert result["model_status"] in {"online", "unavailable"}
+    assert result["model"] == "distilbert/distilbert-base-uncased-finetuned-sst-2-english"
+    assert result["model_used"] == result["model"]
+    assert result["model_status"] == "online"
+    assert result["label"] == "positive"
     assert result["score"] >= 0.0
     assert result["score"] <= 1.0
+    assert classify_sentiment("Amazing, helpful, and wonderful")["label"] == "positive"
+    assert classify_sentiment("Broken, slow, and terrible")["label"] == "negative"
 
 
-def test_sarcasm_is_detected_with_bert_or_fallback():
-    sarcastic = classify_sarcasm("Great, another update that makes everything worse")
+def test_sarcasm_uses_english_bert_classifier():
+    sarcastic = classify_sarcasm("CIA Realizes It's Been Using Black Highlighters All These Years.")
     assert sarcastic["label"] == "sarcastic"
-    assert sarcastic["model"] == "cardiffnlp/twitter-roberta-base-sarcasm"
-    assert sarcastic["model_status"] in {"online", "fallback"}
+    assert sarcastic["model"] == "helinivan/english-sarcasm-detector"
+    assert sarcastic["model_used"] == sarcastic["model"]
+    assert sarcastic["model_status"] == "online"
     assert 0.0 <= sarcastic["score"] <= 1.0
 
-    neutral = classify_sarcasm("The update made everything worse")
+    neutral = classify_sarcasm("The app works well and is easy to use.")
     assert neutral["label"] == "not_sarcastic"
+
+
+def test_app_defaults_home_without_analysis_data():
+    app = AppTest.from_file("app.py", default_timeout=30).run()
+    assert not app.exception
+    assert app.segmented_control[0].value == "Home"
+    assert not app.metric
+    assert not app.text_area
+    assert not app.file_uploader
+    assert app.button[0].label == "Analyze reviews"
+
+    app.segmented_control[0].set_value("Dashboard").run()
+    assert not app.exception
+    assert not app.metric
+    assert any("No review analysis yet" in item.value for item in app.markdown)
+    assert app.button[0].label == "Go to Analyze"
+
+
+def test_app_analyzes_multiple_pasted_reviews():
+    app = AppTest.from_file("app.py", default_timeout=120).run()
+    app.segmented_control[0].set_value("Analyze").run()
+    app.text_area[0].set_value("The app is brilliant and easy to use.\n\nThis app is broken and painfully slow.")
+    app.button(key="FormSubmitter:paste_reviews_form-Analyze pasted reviews").click().run()
+
+    assert not app.exception
+    assert any("2 reviews processed" in item.value for item in app.markdown)
+
+    app.segmented_control[0].set_value("Dashboard").run()
+    assert not app.exception
+    metrics = {metric.label: metric.value for metric in app.metric}
+    assert metrics["Reviews analyzed"] == "2"
+    assert metrics["Positive"] == "1"
+    assert metrics["Negative"] == "1"
+
+    app.segmented_control[0].set_value("Trust").run()
+    assert not app.exception
+    assert len(app.dataframe) == 1
+
+    app.segmented_control[0].set_value("Drift").run()
+    assert not app.exception
+    assert any("Add dates to the reviews" in item.value for item in app.info)
 
 
 def test_pipeline_redacts_and_tracks_evidence():

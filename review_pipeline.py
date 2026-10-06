@@ -4,7 +4,7 @@ from datetime import datetime
 import math
 from typing import Any
 from pii_logic import redact_pii
-from sentiment import classify_sarcasm, classify_sentiment
+from sentiment import classify_sarcasms, classify_sentiments
 from themes import detect_themes
 
 SENTIMENTS = ("positive", "neutral", "negative")
@@ -37,7 +37,7 @@ def _js_divergence(first: Counter, second: Counter) -> float:
 
 def analyze_reviews(reviews: list[dict]) -> dict:
     """Create dashboard-ready analysis, keeping every output traceable to its source review."""
-    analyzed, invalid_rows, pii_redacted = [], 0, 0
+    prepared, invalid_rows, pii_redacted = [], 0, 0
     examples, by_month = defaultdict(list), defaultdict(Counter)
     labelled_total = labelled_correct = 0
     for index, review in enumerate(reviews, 1):
@@ -48,14 +48,30 @@ def analyze_reviews(reviews: list[dict]) -> dict:
             invalid_rows += 1; continue
         text = redact_pii(raw)
         pii_redacted += text != raw
-        sentiment = classify_sentiment(text)
-        sarcasm = classify_sarcasm(text)
         matches = detect_themes(text)
-        month = _normalise_date(review.get("date"))
         expected = str(review.get("sentiment_label") or "").lower().strip() or _expected_label(rating)
+        prepared.append({
+            "review_id": review_id,
+            "text": text,
+            "rating": rating,
+            "product": review.get("product"),
+            "date": _normalise_date(review.get("date")),
+            "expected": expected,
+            "matches": matches,
+        })
+
+    texts = [review["text"] for review in prepared]
+    sentiments = classify_sentiments(texts)
+    sarcasms = classify_sarcasms(texts)
+    analyzed = []
+
+    for review, sentiment, sarcasm in zip(prepared, sentiments, sarcasms):
+        review_id, text, matches = review["review_id"], review["text"], review["matches"]
+        month, rating = review["date"], review["rating"]
+        expected = review["expected"]
         if expected in SENTIMENTS:
             labelled_total += 1; labelled_correct += sentiment["label"] == expected
-        item = {"review_id": review_id, "text": text, "sentiment": sentiment["label"], "sentiment_score": sentiment["score"], "sentiment_signals": sentiment["signals"], "sarcasm": sarcasm["label"], "sarcasm_score": sarcasm["score"], "themes": list(matches), "theme_signals": matches, "rating": rating, "product": review.get("product"), "date": month}
+        item = {"review_id": review_id, "text": text, "sentiment": sentiment["label"], "sentiment_score": sentiment["score"], "sentiment_signals": sentiment["signals"], "sarcasm": sarcasm["label"], "sarcasm_score": sarcasm["score"], "themes": list(matches), "theme_signals": matches, "rating": rating, "product": review["product"], "date": month}
         analyzed.append(item)
         if month: by_month[month][sentiment["label"]] += 1
         for theme, signals in matches.items(): examples[theme].append({"review_id": review_id, "text": text, "signals": signals, "sentiment": sentiment["label"], "sarcasm": sarcasm["label"]})
