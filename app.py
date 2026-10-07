@@ -1,3 +1,5 @@
+from html import escape
+
 import pandas as pd
 import plotly.express as px
 import streamlit as st
@@ -225,7 +227,7 @@ if active_page == "Home":
     </section>
     """, unsafe_allow_html=True)
     st.button("Analyze reviews", type="primary", icon=":material/arrow_forward:", on_click=_open_analyzer)
-    st.markdown('<div class="home-details-label">FROM CUSTOMER WORDS TO PRODUCT SIGNALS</div><div class="home-detail-grid"><div class="home-detail"><strong>Read the tone</strong><p>Azure OpenAI reads review context, not just keywords.</p></div><div class="home-detail"><strong>Keep the evidence</strong><p>Theme signals link findings back to review text.</p></div><div class="home-detail"><strong>Protect the person</strong><p>Contact details are masked before analysis.</p></div></div>', unsafe_allow_html=True)
+    st.markdown('<div class="home-details-label">FROM CUSTOMER WORDS TO PRODUCT SIGNALS</div><div class="home-detail-grid"><div class="home-detail"><strong>Read the tone</strong><p>Hugging Face RoBERTa reads review context, not just keywords.</p></div><div class="home-detail"><strong>Keep the evidence</strong><p>Theme signals link findings back to review text.</p></div><div class="home-detail"><strong>Protect the person</strong><p>Contact details are masked before analysis.</p></div></div>', unsafe_allow_html=True)
     st.markdown('<div class="developer-footer">REVIEWPULSE · PRIVATE BY DESIGN · EVIDENCE FIRST</div>', unsafe_allow_html=True)
     st.stop()
 
@@ -267,11 +269,18 @@ if active_page in {"Dashboard", "Trust", "Drift"}:
                 figure.update_traces(textposition="outside", marker_line_width=0)
                 st.plotly_chart(figure, width="stretch")
         st.subheader("Review evidence")
+        sarcasm_examples = result.get("sarcasm_examples", [])
+        if sarcasm_examples:
+            with st.expander(f"Sarcasm · {sum(review['sarcasm'] == 'sarcastic' for review in result['reviews']):,} reviews"):
+                for example in sarcasm_examples:
+                    signals = ", ".join(example["signals"]) or "Sarcasm heuristic"
+                    confidence = f" · CONFIDENCE: {example['sarcasm_score']:.0%}"
+                    st.markdown(f'<div class="evidence"><div class="evidence-meta">REVIEW {escape(str(example["review_id"]))} · {escape(example["sentiment"].upper())} · SARCASTIC{confidence} · SIGNALS: {escape(signals)}</div>{escape(example["text"])}</div>', unsafe_allow_html=True)
         for theme in result["themes"]:
             with st.expander(f"{theme['name'].title()} · {theme['count']:,} reviews"):
                 for example in theme["examples"]:
                     matched = ", ".join(example["signals"]) or "contextual match"
-                    st.markdown(f'<div class="evidence"><div class="evidence-meta">REVIEW {example["review_id"]} · {example["sentiment"].upper()} · {example["sarcasm"].upper()} · SIGNALS: {matched}</div>{example["text"]}</div>', unsafe_allow_html=True)
+                    st.markdown(f'<div class="evidence"><div class="evidence-meta">REVIEW {escape(str(example["review_id"]))} · {escape(example["sentiment"].upper())} · {escape(example["sarcasm"].upper())} · SIGNALS: {escape(matched)}</div>{escape(example["text"])}</div>', unsafe_allow_html=True)
         st.stop()
 
     if active_page == "Trust":
@@ -281,7 +290,7 @@ if active_page in {"Dashboard", "Trust", "Drift"}:
         metrics[1].metric("Labelled validation", f"{validation['accuracy']:.0%}" if validation["accuracy"] is not None else "Needs labels")
         metrics[2].metric("Validation sample", f"{validation['labelled_sample_size']:,}")
         st.subheader("Model provenance")
-        st.caption(f"Sentiment, sarcasm, and themes are classified by Azure OpenAI ({result['reviews'][0]['model'] if result['reviews'] else 'configured deployment'}). PII is redacted before inference. Validate outputs against a representative human-labelled review set before production use.")
+        st.caption(f"Sentiment is classified locally with Hugging Face ({result['reviews'][0]['model'] if result['reviews'] else 'RoBERTa model'}). PII is redacted before inference and no API key is needed. Validate outputs against a representative human-labelled review set before production use.")
         st.subheader("Protected audit trail")
         audit = pd.DataFrame(result["reviews"])
         if not audit.empty:
@@ -400,9 +409,9 @@ if manual_submitted or upload_submitted:
         progress_note = st.empty()
 
         def update_analysis_progress(phase, completed, total):
-            phase_name = "Azure OpenAI review analysis"
+            phase_name = "Hugging Face AI review analysis"
             percent = round(completed / max(total, 1) * 100)
-            caption = "Sending redacted reviews to Azure OpenAI…" if completed == 0 else f"{completed:,} of {total:,} reviews classified."
+            caption = "Loading Hugging Face AI model…" if completed == 0 else f"{completed:,} of {total:,} reviews classified."
             liquid_progress.markdown(
                 f'<div class="liquid-progress" role="progressbar" aria-valuenow="{percent}" aria-valuemin="0" aria-valuemax="100"><div class="liquid-vessel"><div class="liquid-fill" style="--liquid-level:{percent}%"><i class="liquid-bubble"></i><i class="liquid-bubble"></i><i class="liquid-bubble"></i></div><span class="liquid-percent">{percent}%</span></div><div class="liquid-copy"><div class="liquid-phase">{phase_name}</div><div class="liquid-caption">{caption}</div></div></div>',
                 unsafe_allow_html=True,

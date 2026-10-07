@@ -1,119 +1,101 @@
-"""Azure OpenAI-powered review classification."""
+"""Local Hugging Face sentiment analysis for customer reviews."""
 from __future__ import annotations
 
-import json
-import os
 from collections.abc import Callable
+from functools import lru_cache
+import re
+
+from themes import detect_themes
 
 
-AZURE_OPENAI_ENDPOINT = os.getenv("AZURE_OPENAI_ENDPOINT", "").rstrip("/")
-AZURE_OPENAI_API_KEY = os.getenv("AZURE_OPENAI_API_KEY", "")
-AZURE_OPENAI_DEPLOYMENT = os.getenv("AZURE_OPENAI_DEPLOYMENT", "")
-AZURE_OPENAI_API_VERSION = os.getenv("AZURE_OPENAI_API_VERSION", "2024-10-21")
-GPT_MODEL_NAME = AZURE_OPENAI_DEPLOYMENT or "azure-openai-unconfigured"
-REQUEST_BATCH_SIZE = 25
-
-_THEMES = {"reliability", "performance", "features", "usability", "support", "price", "privacy", "other"}
+GPT_MODEL_NAME = "cardiffnlp/twitter-roberta-base-sentiment-latest"
+REQUEST_BATCH_SIZE = 32
+SARCASM_MARKERS = {"as if", "brilliantly broken", "congratulations", "emotional damage", "fantastic job", "great job", "just what i needed", "love that", "nice job", "obviously", "perfectly useless", "what a joke", "wow"}
+EXPECTATION_WORDS = {"expected", "expecting", "thought", "hoped"}
+REVERSAL_WORDS = {"but", "got", "instead", "rather"}
+WORD = re.compile(r"[a-z]+(?:'[a-z]+)?")
 
 
 class ModelLoadError(RuntimeError):
-    """Raised when Azure OpenAI cannot be used for review analysis."""
+    """Raised when the local Hugging Face model cannot be loaded."""
 
 
-def _client():
-    if not all((AZURE_OPENAI_ENDPOINT, AZURE_OPENAI_API_KEY, AZURE_OPENAI_DEPLOYMENT)):
-        raise ModelLoadError(
-            "Azure OpenAI is not configured. Set AZURE_OPENAI_ENDPOINT, "
-            "AZURE_OPENAI_API_KEY, and AZURE_OPENAI_DEPLOYMENT."
-        )
+@lru_cache(maxsize=1)
+def _sentiment_pipeline():
+    """Load the trained model once; the first analysis downloads it from Hugging Face."""
     try:
-        from openai import AzureOpenAI
-    except ImportError as error:
-        raise ModelLoadError("The OpenAI SDK is missing. Run: python3 -m pip install -r requirements.txt") from error
-    return AzureOpenAI(
-        azure_endpoint=AZURE_OPENAI_ENDPOINT,
-        api_key=AZURE_OPENAI_API_KEY,
-        api_version=AZURE_OPENAI_API_VERSION,
-    )
-
-
-def _prompt(texts: list[str]) -> str:
-    reviews = [{"index": index, "review": text} for index, text in enumerate(texts)]
-    return f"""Classify each customer review. Return JSON only, following this exact shape:
-{{"results":[{{"index":0,"sentiment":"positive|neutral|negative","sentiment_score":0.0,"sarcasm":"sarcastic|not_sarcastic","sarcasm_score":0.0,"themes":["reliability"]}}]}}
-
-Rules:
-- sentiment_score and sarcasm_score must be numbers from 0 to 1.
-- Choose one or more themes only from: reliability, performance, features, usability, support, price, privacy, other.
-- Use contextual meaning, not merely keywords. Detect sarcasm when the wording implies the opposite of its literal praise.
-- Preserve the input index and return exactly one result per review.
-
-Reviews:
-{json.dumps(reviews, ensure_ascii=False)}"""
-
-
-def _normalise(item: dict, index: int) -> dict:
-    sentiment = str(item.get("sentiment", "neutral")).lower()
-    sarcasm = str(item.get("sarcasm", "not_sarcastic")).lower()
-    themes = item.get("themes", ["other"])
-    if not isinstance(themes, list):
-        themes = ["other"]
-    clean_themes = [str(theme).lower() for theme in themes if str(theme).lower() in _THEMES] or ["other"]
-    try:
-        sentiment_score = min(1.0, max(0.0, float(item.get("sentiment_score", 0.5))))
-        sarcasm_score = min(1.0, max(0.0, float(item.get("sarcasm_score", 0.0))))
-    except (TypeError, ValueError):
-        sentiment_score, sarcasm_score = 0.5, 0.0
-    return {
-        "index": index,
-        "sentiment": sentiment if sentiment in {"positive", "neutral", "negative"} else "neutral",
-        "sentiment_score": round(sentiment_score, 4),
-        "sarcasm": sarcasm if sarcasm in {"sarcastic", "not_sarcastic"} else "not_sarcastic",
-        "sarcasm_score": round(sarcasm_score, 4),
-        "themes": list(dict.fromkeys(clean_themes)),
-    }
-
-
-def _classify_batch(client, texts: list[str]) -> list[dict]:
-    try:
-        completion = client.chat.completions.create(
-            model=AZURE_OPENAI_DEPLOYMENT,
-            temperature=0,
-            response_format={"type": "json_object"},
-            messages=[
-                {"role": "system", "content": "You are a precise customer-review analytics model. Return valid JSON only."},
-                {"role": "user", "content": _prompt(texts)},
-            ],
-        )
-        payload = json.loads(completion.choices[0].message.content or "{}")
-        rows = payload.get("results", [])
+        from transformers import pipeline
+        return pipeline("text-classification", model=GPT_MODEL_NAME, tokenizer=GPT_MODEL_NAME, device=-1)
     except Exception as error:
-        raise ModelLoadError(f"Azure OpenAI analysis failed: {error}") from error
-    if not isinstance(rows, list):
-        raise ModelLoadError("Azure OpenAI returned an invalid analysis response.")
-    by_index = {item.get("index"): item for item in rows if isinstance(item, dict) and isinstance(item.get("index"), int)}
-    if any(index not in by_index for index in range(len(texts))):
-        raise ModelLoadError("Azure OpenAI response was incomplete; no reviews were saved.")
-    return [_normalise(by_index[index], index) for index in range(len(texts))]
+        raise ModelLoadError(
+            "Could not load the Hugging Face sentiment model. Ensure internet access for the first download "
+            "and run: python3 -m pip install -r requirements.txt"
+        ) from error
+
+
+def _sarcasm_evidence(text: str) -> tuple[str, float, list[str]]:
+    """Classify sarcasm and preserve the rule(s) that triggered the label."""
+    lowered = text.lower()
+    words = set(WORD.findall(lowered))
+    matched_markers = sorted(marker for marker in SARCASM_MARKERS if marker in lowered)
+    marker_match = bool(matched_markers)
+    expectation_reversal = bool(words & EXPECTATION_WORDS) and bool(words & REVERSAL_WORDS)
+    destructive_praise = bool({"uninstall", "delete", "remove"} & words) and bool({"best", "only", "reliable", "feature"} & words)
+    sarcastic = marker_match or expectation_reversal or destructive_praise
+    score = .96 if sarcastic and (expectation_reversal or destructive_praise) else .88 if sarcastic else .08
+    signals = [f'Marker: "{marker}"' for marker in matched_markers]
+    if expectation_reversal:
+        signals.append("Expectation reversal")
+    if destructive_praise:
+        signals.append("Destructive praise")
+    return ("sarcastic" if sarcastic else "not_sarcastic", score, signals)
+
+
+def _sarcasm(text: str) -> tuple[str, float]:
+    """Backward-compatible compact sarcasm result."""
+    label, score, _ = _sarcasm_evidence(text)
+    return label, score
+
+
+def _normalise_label(label: str) -> str:
+    value = label.lower().strip()
+    if value in {"negative", "label_0"}: return "negative"
+    if value in {"neutral", "label_1"}: return "neutral"
+    if value in {"positive", "label_2"}: return "positive"
+    return "neutral"
 
 
 def classify_reviews(texts: list[str], progress_callback: Callable[[int, int], None] | None = None) -> list[dict]:
-    """Classify redacted reviews through the configured Azure OpenAI deployment."""
-    client = _client()
-    results: list[dict] = []
+    """Classify reviews with a trained Hugging Face RoBERTa model, locally on this machine."""
+    classifier = _sentiment_pipeline()
+    results = []
     for start in range(0, len(texts), REQUEST_BATCH_SIZE):
-        results.extend(_classify_batch(client, texts[start:start + REQUEST_BATCH_SIZE]))
+        batch = texts[start:start + REQUEST_BATCH_SIZE]
+        try:
+            predictions = classifier(batch, truncation=True, max_length=512, batch_size=16)
+        except Exception as error:
+            raise ModelLoadError(f"Hugging Face sentiment analysis failed: {error}") from error
+        for text, prediction in zip(batch, predictions):
+            sarcasm, sarcasm_score, sarcasm_signals = _sarcasm_evidence(text)
+            results.append({
+                "sentiment": _normalise_label(str(prediction.get("label", "neutral"))),
+                "sentiment_score": round(float(prediction.get("score", .5)), 4),
+                "sarcasm": sarcasm,
+                "sarcasm_score": sarcasm_score,
+                "sarcasm_signals": sarcasm_signals,
+                "themes": list(detect_themes(text)),
+            })
         if progress_callback:
             progress_callback(len(results), len(texts))
     return results
 
 
 def classify_sentiments(texts: list[str], progress_callback: Callable[[int, int], None] | None = None) -> list[dict]:
-    return [{"label": item["sentiment"], "score": item["sentiment_score"], "signals": ["Azure OpenAI contextual classification"], "model": GPT_MODEL_NAME, "model_status": "azure_openai", "model_used": GPT_MODEL_NAME} for item in classify_reviews(texts, progress_callback)]
+    return [{"label": item["sentiment"], "score": item["sentiment_score"], "signals": ["Hugging Face RoBERTa"], "model": GPT_MODEL_NAME, "model_status": "local_huggingface", "model_used": GPT_MODEL_NAME} for item in classify_reviews(texts, progress_callback)]
 
 
 def classify_sarcasms(texts: list[str], progress_callback: Callable[[int, int], None] | None = None) -> list[dict]:
-    return [{"label": item["sarcasm"], "score": item["sarcasm_score"], "signals": ["Azure OpenAI contextual classification"], "model": GPT_MODEL_NAME, "model_status": "azure_openai", "model_used": GPT_MODEL_NAME} for item in classify_reviews(texts, progress_callback)]
+    return [{"label": item["sarcasm"], "score": item["sarcasm_score"], "signals": ["Sarcasm heuristic"], "model": GPT_MODEL_NAME, "model_status": "local_huggingface", "model_used": GPT_MODEL_NAME} for item in classify_reviews(texts, progress_callback)]
 
 
 def classify_sentiment(text: str) -> dict:
