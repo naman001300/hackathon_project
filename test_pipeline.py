@@ -1,7 +1,7 @@
 from unittest.mock import patch
 
 from review_pipeline import analyze_reviews
-from sentiment import GPT_MODEL_NAME, classify_reviews
+from sentiment import ModelLoadError, _normalise, classify_reviews
 from streamlit.testing.v1 import AppTest
 
 
@@ -15,19 +15,20 @@ def _labels(texts, progress_callback=None):
     return rows
 
 
-def test_local_classifier_returns_labels_for_every_review():
-    result = classify_reviews(["I love this app", "The login is broken and slow"])
-    assert result[0]["sentiment"] == "positive"
-    assert result[1]["sentiment"] == "negative"
-    assert GPT_MODEL_NAME == "local-review-classifier-v1"
+def test_azure_response_is_normalised_to_dashboard_labels():
+    result = _normalise({"sentiment": "positive", "sentiment_score": .95, "sarcasm": "not_sarcastic", "sarcasm_score": .02, "themes": ["usability"]}, 0)
+    assert result["sentiment"] == "positive"
+    assert result["themes"] == ["usability"]
 
 
-def test_detects_expectation_reversal_and_uninstall_sarcasm():
-    review = "Downloaded this app expecting convenience. Got confusion, crashes, endless loading, and emotional damage instead. At this point, the uninstall button is the most reliable feature."
-    result = classify_reviews([review])[0]
-    assert result["sentiment"] == "negative"
-    assert result["sarcasm"] == "sarcastic"
-    assert result["sarcasm_score"] >= .9
+def test_classifier_requires_azure_openai_configuration():
+    with patch("sentiment._client", side_effect=ModelLoadError("Azure OpenAI is not configured")):
+        try:
+            classify_reviews(["A review"])
+        except ModelLoadError as error:
+            assert "Azure OpenAI" in str(error)
+        else:
+            raise AssertionError("Expected Azure OpenAI configuration error")
 
 
 def test_app_defaults_home_without_analysis_data():
@@ -55,7 +56,7 @@ def test_pipeline_redacts_and_tracks_evidence():
     assert result["total_reviews"] == 1
     assert result["quality"]["pii_redacted_count"] == 1
     assert "EMAIL REDACTED" in result["reviews"][0]["text"]
-    assert "reliability" in result["reviews"][0]["themes"]
+    assert "other" in result["reviews"][0]["themes"]
 
 
 def test_pipeline_rejects_bad_rows_and_exposes_drift():

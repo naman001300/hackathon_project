@@ -6,7 +6,6 @@ import math
 from typing import Any
 from pii_logic import redact_pii
 from sentiment import GPT_MODEL_NAME, classify_reviews
-from themes import detect_themes
 
 SENTIMENTS = ("positive", "neutral", "negative")
 
@@ -52,7 +51,6 @@ def analyze_reviews(
             invalid_rows += 1; continue
         text = redact_pii(raw)
         pii_redacted += text != raw
-        matches = detect_themes(text)
         expected = str(review.get("sentiment_label") or "").lower().strip() or _expected_label(rating)
         prepared.append({
             "review_id": review_id,
@@ -61,7 +59,6 @@ def analyze_reviews(
             "product": review.get("product"),
             "date": _normalise_date(review.get("date")),
             "expected": expected,
-            "matches": matches,
         })
 
     texts = [review["text"] for review in prepared]
@@ -78,12 +75,13 @@ def analyze_reviews(
     analyzed = []
 
     for review, classification in zip(prepared, classifications):
-        review_id, text, matches = review["review_id"], review["text"], review["matches"]
+        review_id, text = review["review_id"], review["text"]
+        matches = {theme: ["Azure OpenAI contextual classification"] for theme in classification.get("themes", ["other"])}
         month, rating = review["date"], review["rating"]
         expected = review["expected"]
         if expected in SENTIMENTS:
             labelled_total += 1; labelled_correct += classification["sentiment"] == expected
-        item = {"review_id": review_id, "text": text, "sentiment": classification["sentiment"], "sentiment_score": classification["sentiment_score"], "sentiment_signals": ["GPT classification"], "sarcasm": classification["sarcasm"], "sarcasm_score": classification["sarcasm_score"], "themes": list(matches), "theme_signals": matches, "rating": rating, "product": review["product"], "date": month, "model": GPT_MODEL_NAME}
+        item = {"review_id": review_id, "text": text, "sentiment": classification["sentiment"], "sentiment_score": classification["sentiment_score"], "sentiment_signals": ["Azure OpenAI contextual classification"], "sarcasm": classification["sarcasm"], "sarcasm_score": classification["sarcasm_score"], "themes": list(matches), "theme_signals": matches, "rating": rating, "product": review["product"], "date": month, "model": GPT_MODEL_NAME}
         analyzed.append(item)
         if month: by_month[month][classification["sentiment"]] += 1
         for theme, signals in matches.items(): examples[theme].append({"review_id": review_id, "text": text, "signals": signals, "sentiment": classification["sentiment"], "sarcasm": classification["sarcasm"]})
