@@ -79,10 +79,19 @@ def analyze_reviews(
         matches = {theme: ["Hugging Face RoBERTa / theme match"] for theme in classification.get("themes", ["other"])}
         month, rating = review["date"], review["rating"]
         expected = review["expected"]
+        sentiment_signals = list(classification.get("sentiment_signals", ["RoBERTa sentiment classifier"]))
+        needs_review = bool(classification.get("needs_review", False))
+        # A star rating is not used to overwrite the model.  It is useful
+        # evidence, though: a disagreement deserves a human look rather than
+        # being quietly presented as a certain AI verdict.
+        rating_sentiment = _expected_label(rating)
+        if rating_sentiment and rating_sentiment != classification["sentiment"]:
+            needs_review = True
+            sentiment_signals.append(f"Rating/model conflict ({rating}-star suggests {rating_sentiment})")
         if expected in SENTIMENTS:
             labelled_total += 1; labelled_correct += classification["sentiment"] == expected
         sarcasm_signals = classification.get("sarcasm_signals", [])
-        item = {"review_id": review_id, "text": text, "sentiment": classification["sentiment"], "sentiment_score": classification["sentiment_score"], "sentiment_signals": ["Hugging Face RoBERTa"], "sarcasm": classification["sarcasm"], "sarcasm_score": classification["sarcasm_score"], "sarcasm_signals": sarcasm_signals, "themes": list(matches), "theme_signals": matches, "rating": rating, "product": review["product"], "date": month, "model": GPT_MODEL_NAME}
+        item = {"review_id": review_id, "text": text, "sentiment": classification["sentiment"], "sentiment_score": classification["sentiment_score"], "sentiment_distribution": classification.get("sentiment_distribution", {}), "sentiment_margin": classification.get("sentiment_margin"), "needs_review": needs_review, "sentiment_signals": sentiment_signals, "sarcasm": classification["sarcasm"], "sarcasm_score": classification["sarcasm_score"], "sarcasm_signals": sarcasm_signals, "themes": list(matches), "theme_signals": matches, "rating": rating, "product": review["product"], "date": month, "model": GPT_MODEL_NAME}
         analyzed.append(item)
         if month: by_month[month][classification["sentiment"]] += 1
         for theme, signals in matches.items(): examples[theme].append({"review_id": review_id, "text": text, "signals": signals, "sentiment": classification["sentiment"], "sarcasm": classification["sarcasm"]})
@@ -94,4 +103,4 @@ def analyze_reviews(
     for month in months[:midpoint]: baseline.update(by_month[month])
     for month in months[midpoint:]: recent.update(by_month[month])
     drift = _js_divergence(baseline, recent) if len(months) > 1 else None
-    return {"total_reviews": len(analyzed), "sentiment_summary": _distribution(counts), "sentiment_counts": {label: counts.get(label, 0) for label in SENTIMENTS}, "themes": [{"name": theme, "count": len(rows), "examples": rows[:3]} for theme, rows in sorted(examples.items(), key=lambda pair: (-len(pair[1]), pair[0]))], "sarcasm_examples": sarcasm_examples[:3], "reviews": analyzed, "trend": trend, "validation": {"labelled_sample_size": labelled_total, "accuracy": round(labelled_correct / labelled_total, 3) if labelled_total else None, "correct": labelled_correct}, "drift": {"score": drift, "status": "Not enough dated reviews" if drift is None else "Watch" if drift >= 0.1 else "Stable", "baseline": _distribution(baseline), "recent": _distribution(recent)}, "quality": {"valid_rows": len(analyzed), "invalid_rows": invalid_rows, "pii_redacted_count": pii_redacted}}
+    return {"total_reviews": len(analyzed), "sentiment_summary": _distribution(counts), "sentiment_counts": {label: counts.get(label, 0) for label in SENTIMENTS}, "themes": [{"name": theme, "count": len(rows), "examples": rows[:3]} for theme, rows in sorted(examples.items(), key=lambda pair: (-len(pair[1]), pair[0]))], "sarcasm_examples": sarcasm_examples[:3], "reviews": analyzed, "trend": trend, "validation": {"labelled_sample_size": labelled_total, "accuracy": round(labelled_correct / labelled_total, 3) if labelled_total else None, "correct": labelled_correct}, "drift": {"score": drift, "status": "Not enough dated reviews" if drift is None else "Watch" if drift >= 0.1 else "Stable", "baseline": _distribution(baseline), "recent": _distribution(recent)}, "quality": {"valid_rows": len(analyzed), "invalid_rows": invalid_rows, "pii_redacted_count": pii_redacted, "needs_human_review": sum(row["needs_review"] for row in analyzed)}}

@@ -294,18 +294,20 @@ if active_page in {"Dashboard", "Trust", "Drift"}:
 
     if active_page == "Trust":
         st.markdown('<div class="page-kicker">TRUST / PRIVACY</div><h1>Evidence you can inspect.</h1><p class="home-copy">Personal details are redacted before model inference. Review-level outputs remain traceable to the submitted text.</p>', unsafe_allow_html=True)
-        metrics = st.columns(3)
+        metrics = st.columns(4)
         metrics[0].metric("PII redactions", f"{quality['pii_redacted_count']:,}")
         metrics[1].metric("Labelled validation", f"{validation['accuracy']:.0%}" if validation["accuracy"] is not None else "Needs labels")
         metrics[2].metric("Validation sample", f"{validation['labelled_sample_size']:,}")
+        metrics[3].metric("Human review", f"{quality.get('needs_human_review', 0):,}")
         st.subheader("Model provenance")
-        st.caption(f"Sentiment is classified locally with Hugging Face ({result['reviews'][0]['model'] if result['reviews'] else 'RoBERTa model'}). PII is redacted before inference and no API key is needed. Validate outputs against a representative human-labelled review set before production use.")
+        st.caption(f"Sentiment is classified locally with Hugging Face ({result['reviews'][0]['model'] if result['reviews'] else 'RoBERTa model'}). Each result retains all three class probabilities; low-confidence, close-call, and rating-conflict results are flagged for human review. PII is redacted before inference and no API key is needed.")
         st.subheader("Protected audit trail")
         audit = pd.DataFrame(result["reviews"])
         if not audit.empty:
             audit["themes"] = audit["themes"].apply(", ".join)
             audit["sentiment_signals"] = audit["sentiment_signals"].apply(", ".join)
-            st.dataframe(audit[["review_id", "rating", "sentiment", "sentiment_score", "sarcasm", "sarcasm_score", "sentiment_signals", "themes", "text"]], width="stretch", hide_index=True, height=420)
+            audit["needs_review"] = audit["needs_review"].map({True: "Yes", False: "No"})
+            st.dataframe(audit[["review_id", "rating", "sentiment", "sentiment_score", "sentiment_margin", "needs_review", "sarcasm", "sarcasm_score", "sentiment_signals", "themes", "text"]], width="stretch", hide_index=True, height=420)
         st.stop()
 
     st.markdown('<div class="page-kicker">DRIFT / SENTIMENT OVER TIME</div><h1>Spot the shift.</h1><p class="home-copy">Compare sentiment distribution across dated reviews to identify changes in customer mood.</p>', unsafe_allow_html=True)

@@ -8,8 +8,13 @@ import re
 from themes import detect_themes
 
 
-GPT_MODEL_NAME = "cardiffnlp/twitter-roberta-base-sentiment-latest"
+# This is a three-way (positive / neutral / negative) classifier.  Keep the
+# legacy name below because older API consumers import it directly.
+SENTIMENT_MODEL_NAME = "cardiffnlp/twitter-roberta-base-sentiment-latest"
+GPT_MODEL_NAME = SENTIMENT_MODEL_NAME
 REQUEST_BATCH_SIZE = 32
+MIN_CONFIDENCE = 0.58
+MIN_MARGIN = 0.18
 SARCASM_MARKERS = {"as if", "brilliantly broken", "congratulations", "emotional damage", "fantastic job", "great job", "just what i needed", "love that", "nice job", "obviously", "perfectly useless", "what a joke", "wow"}
 EXPECTATION_WORDS = {"expected", "expecting", "thought", "hoped"}
 REVERSAL_WORDS = {"but", "got", "instead", "rather"}
@@ -25,7 +30,12 @@ def _sentiment_pipeline():
     """Load the trained model once; the first analysis downloads it from Hugging Face."""
     try:
         from transformers import pipeline
-        return pipeline("text-classification", model=GPT_MODEL_NAME, tokenizer=GPT_MODEL_NAME, device=-1)
+        return pipeline(
+            "text-classification",
+            model=SENTIMENT_MODEL_NAME,
+            tokenizer=SENTIMENT_MODEL_NAME,
+            device=-1,
+        )
     except Exception as error:
         raise ModelLoadError(
             "Could not load the Hugging Face sentiment model. Ensure internet access for the first download "
@@ -65,6 +75,22 @@ def _normalise_label(label: str) -> str:
     return "neutral"
 
 
+def _prediction_details(prediction: object) -> tuple[str, float, dict[str, float], float]:
+    """Turn the model's full score vector into an auditable sentiment result."""
+    rows = prediction if isinstance(prediction, list) else [prediction]
+    distribution = {label: 0.0 for label in ("positive", "neutral", "negative")}
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        label = _normalise_label(str(row.get("label", "neutral")))
+        distribution[label] = max(distribution[label], float(row.get("score", 0.0)))
+
+    ranked = sorted(distribution.items(), key=lambda item: item[1], reverse=True)
+    label, score = ranked[0]
+    margin = score - ranked[1][1]
+    return label, round(score, 4), {key: round(value, 4) for key, value in distribution.items()}, round(margin, 4)
+
+
 def classify_reviews(texts: list[str], progress_callback: Callable[[int, int], None] | None = None) -> list[dict]:
     """Classify reviews with a trained Hugging Face RoBERTa model, locally on this machine."""
     classifier = _sentiment_pipeline()
@@ -72,14 +98,27 @@ def classify_reviews(texts: list[str], progress_callback: Callable[[int, int], N
     for start in range(0, len(texts), REQUEST_BATCH_SIZE):
         batch = texts[start:start + REQUEST_BATCH_SIZE]
         try:
-            predictions = classifier(batch, truncation=True, max_length=512, batch_size=16)
+            # Asking for every class is essential: a top-label score alone
+            # cannot reveal an ambiguous positive-vs-negative prediction.
+            predictions = classifier(batch, truncation=True, max_length=512, batch_size=16, top_k=None)
         except Exception as error:
             raise ModelLoadError(f"Hugging Face sentiment analysis failed: {error}") from error
         for text, prediction in zip(batch, predictions):
+            sentiment, sentiment_score, distribution, margin = _prediction_details(prediction)
+            needs_review = sentiment_score < MIN_CONFIDENCE or margin < MIN_MARGIN
+            sentiment_signals = ["RoBERTa full probability distribution"]
+            if sentiment_score < MIN_CONFIDENCE:
+                sentiment_signals.append("Low model confidence")
+            if margin < MIN_MARGIN:
+                sentiment_signals.append("Close competing sentiment scores")
             sarcasm, sarcasm_score, sarcasm_signals = _sarcasm_evidence(text)
             results.append({
-                "sentiment": _normalise_label(str(prediction.get("label", "neutral"))),
-                "sentiment_score": round(float(prediction.get("score", .5)), 4),
+                "sentiment": sentiment,
+                "sentiment_score": sentiment_score,
+                "sentiment_distribution": distribution,
+                "sentiment_margin": margin,
+                "needs_review": needs_review,
+                "sentiment_signals": sentiment_signals,
                 "sarcasm": sarcasm,
                 "sarcasm_score": sarcasm_score,
                 "sarcasm_signals": sarcasm_signals,
