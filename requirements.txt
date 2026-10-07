@@ -5,4 +5,4 @@ openpyxl
 fastapi
 uvicorn
 pytest
-openai>=1.0.0
+transformers[torch]>=4.40.0
