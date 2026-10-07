@@ -269,13 +269,22 @@ if active_page in {"Dashboard", "Trust", "Drift"}:
                 figure.update_traces(textposition="outside", marker_line_width=0)
                 st.plotly_chart(figure, width="stretch")
         st.subheader("Review evidence")
-        sarcasm_examples = result.get("sarcasm_examples", [])
-        if sarcasm_examples:
-            with st.expander(f"Sarcasm · {sum(review['sarcasm'] == 'sarcastic' for review in result['reviews']):,} reviews"):
-                for example in sarcasm_examples:
-                    signals = ", ".join(example["signals"]) or "Sarcasm heuristic"
-                    confidence = f" · CONFIDENCE: {example['sarcasm_score']:.0%}"
-                    st.markdown(f'<div class="evidence"><div class="evidence-meta">REVIEW {escape(str(example["review_id"]))} · {escape(example["sentiment"].upper())} · SARCASTIC{confidence} · SIGNALS: {escape(signals)}</div>{escape(example["text"])}</div>', unsafe_allow_html=True)
+        sarcastic_reviews = [review for review in result["reviews"] if review.get("sarcasm") == "sarcastic"]
+        # Analyses created before sarcasm_examples was added still have review-level labels.
+        sarcasm_examples = result.get("sarcasm_examples") or [{
+            "review_id": review["review_id"],
+            "text": review["text"],
+            "signals": review.get("sarcasm_signals", []),
+            "sentiment": review["sentiment"],
+            "sarcasm_score": review.get("sarcasm_score", 0),
+        } for review in sarcastic_reviews[:3]]
+        with st.expander(f"Sarcasm · {len(sarcastic_reviews):,} reviews"):
+            if not sarcasm_examples:
+                st.caption("No sarcastic reviews were identified in this analysis.")
+            for example in sarcasm_examples:
+                signals = ", ".join(example["signals"]) or "Sarcasm heuristic"
+                confidence = f" · CONFIDENCE: {example['sarcasm_score']:.0%}"
+                st.markdown(f'<div class="evidence"><div class="evidence-meta">REVIEW {escape(str(example["review_id"]))} · {escape(example["sentiment"].upper())} · SARCASTIC{confidence} · SIGNALS: {escape(signals)}</div>{escape(example["text"])}</div>', unsafe_allow_html=True)
         for theme in result["themes"]:
             with st.expander(f"{theme['name'].title()} · {theme['count']:,} reviews"):
                 for example in theme["examples"]:
